@@ -163,6 +163,16 @@ class SessionRepository(context: Context) {
      * Sauvegarde une nouvelle session. 
      * Grâce au Flow ci-dessus, tous les observateurs seront notifiés automatiquement.
      */
+    private fun albumOrderAccount(config: SessionConfig): String = java.security.MessageDigest.getInstance("SHA-256")
+        .digest("${config.baseUrl.trimEnd('/')}\n${config.userId}".toByteArray())
+        .joinToString("") { "%02x".format(it) }
+
+    suspend fun getAlbumOrder(config: SessionConfig): List<String> = dataStore.getAlbumOrder(albumOrderAccount(config)).first()
+
+    suspend fun saveAlbumOrder(config: SessionConfig, ids: List<String>) {
+        dataStore.saveAlbumOrder(albumOrderAccount(config), ids)
+    }
+
     suspend fun saveSession(baseUrl: String, token: String, userId: String) {
         dataStore.saveSession(baseUrl, token, userId)
     }

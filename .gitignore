@@ -21,6 +21,7 @@ secrets.xml
 *.jks
 *.keystore
 *.p12
+/keystore.properties
 
 # --- CONFIGURATION DE L'IDE ---
 # Paramètres spécifiques à Android Studio / IntelliJ (peuvent varier d'un développeur à l'autre)
@@ -39,3 +40,6 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots
 fastlane/test_output
+
+# Kotlin compiler cache
+.kotlin/

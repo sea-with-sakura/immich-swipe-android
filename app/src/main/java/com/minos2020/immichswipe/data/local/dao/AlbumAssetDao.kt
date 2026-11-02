@@ -14,6 +14,9 @@ interface AlbumAssetDao {
     @Query("DELETE FROM album_assets WHERE albumId = :albumId AND userId = :userId")
     suspend fun clearAlbumRelations(albumId: String, userId: String)
 
+    @Query("DELETE FROM album_assets WHERE albumId = :albumId AND assetId IN (:assetIds) AND userId = :userId")
+    suspend fun removeAlbumAssets(albumId: String, assetIds: List<String>, userId: String)
+
     @Query("DELETE FROM album_assets WHERE userId = :userId")
     suspend fun clearAllForUser(userId: String)
 

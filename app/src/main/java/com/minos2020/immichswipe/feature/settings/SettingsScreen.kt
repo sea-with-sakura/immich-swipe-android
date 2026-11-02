@@ -272,65 +272,6 @@ fun SettingsScreen(
             // SECTION ACTIONS DE TRI
             SettingsSection(title = stringResource(R.string.settings_interaction_sorting_title), icon = Icons.Default.TouchApp) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    SettingsToggleItemSmall(
-                        title = stringResource(R.string.settings_tri_favorite),
-                        checked = uiState.showFavoriteButton,
-                        onCheckedChange = { viewModel.setShowFavorite(it) },
-                        icon = Icons.Default.Favorite
-                    )
-
-                    AnimatedVisibility(
-                        visible = uiState.showFavoriteButton,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .padding(start = 32.dp, end = 8.dp, bottom = 8.dp)
-                                .background(
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                    RoundedCornerShape(12.dp)
-                                )
-                        ) {
-                            SettingsToggleItemSmall(
-                                title = stringResource(R.string.settings_auto_next_label),
-                                checked = uiState.autoNextOnFav,
-                                onCheckedChange = { viewModel.setAutoNextOnFav(it) },
-                                icon = Icons.Default.Check
-                            )
-                            Text(
-                                text = stringResource(R.string.settings_auto_next_desc),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
-                                modifier = Modifier.padding(start = 40.dp, end = 16.dp, bottom = 8.dp)
-                            )
-                        }
-                    }
-
-                    SettingsToggleItemSmall(
-                        title = stringResource(R.string.settings_tri_archive),
-                        checked = uiState.showArchiveButton,
-                        onCheckedChange = { viewModel.setShowArchive(it) },
-                        icon = Icons.Default.Archive
-                    )
-                    SettingsToggleItemSmall(
-                        title = stringResource(R.string.settings_tri_lock),
-                        checked = uiState.showLockButton,
-                        onCheckedChange = { viewModel.setShowLock(it) },
-                        icon = Icons.Default.Lock
-                    )
-                    SettingsToggleItemSmall(
-                        title = stringResource(R.string.settings_tri_add_to_album),
-                        checked = uiState.showAddToAlbumButton,
-                        onCheckedChange = { viewModel.setShowAddToAlbum(it) },
-                        icon = Icons.Default.LibraryAdd
-                    )
-                    SettingsToggleItemSmall(
-                        title = stringResource(R.string.settings_tri_keep_delete),
-                        checked = uiState.showKeepDeleteButtons,
-                        onCheckedChange = { viewModel.setShowKeepDelete(it) },
-                        icon = Icons.Default.Swipe // Icône évoquant le mouvement et les boutons
-                    )
                     // Inversion du swipe
                     SettingsToggleItemSmall(
                         title = stringResource(R.string.settings_swipe_invert_label),

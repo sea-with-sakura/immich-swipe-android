@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Immich Swipe</string>
+    <string name="app_name">Immich Albums</string>
 
     <!-- Login Screen -->
     <string name="login_url_label">Server URL</string>
@@ -106,7 +106,7 @@
     <string name="settings_interaction_sorting_title">Sorting actions</string>
     <string name="settings_interaction_card_title">Swipe card actions</string>
     <string name="settings_swipe_invert_label">Invert swipe direction</string>
-    <string name="settings_swipe_invert_desc">Left to keep, right to delete</string>
+    <string name="settings_swipe_invert_desc">Left to skip, right to delete</string>
     <string name="settings_fullscreen_pos_label">Fullscreen button position</string>
     <string name="settings_immich_pos_label">Open in Immich button position</string>
     <string name="settings_immich_open_mode_label">Open mode</string>
@@ -260,4 +260,37 @@
     <string name="settings_logs_copied_toast">Logs copied to clipboard</string>
     <string name="settings_logs_confirm_clear_title">Clear logs</string>
     <string name="settings_logs_confirm_clear_msg">Are you sure you want to clear all app logs?\nThis action is irreversible.</string>
+
+    <!-- Album organizing -->
+    <string name="organize_filed">Filed</string>
+    <string name="organize_new_album">New album</string>
+    <string name="organize_create_and_add">Create and add photo</string>
+    <string name="organize_album_name">Album name</string>
+    <string name="organize_no_albums">Create an album to start organizing</string>
+    <string name="organize_no_matches">No matching albums</string>
+    <string name="organize_auto_next">Next photo after adding</string>
+    <string name="organize_added_to">Added to %1$s</string>
+    <string name="organize_undo_swipe">Undo swipe (album assignments stay saved)</string>
+    <string name="organize_load_error">Could not load albums. Check your connection and album.read permission.</string>
+    <string name="organize_add_error">Photo was not added. Tap the album to retry; check albumAsset.create permission.</string>
+    <string name="organize_create_error">Could not create album. Check your connection and album.create permission.</string>
+
+    <string name="organize_unfiled">Not in any album</string>
+    <string name="organize_selected">%1$d selected</string>
+    <string name="organize_photo_count">%1$d photos · select a day or tap photos</string>
+    <string name="organize_jump_date">Jump to date</string>
+    <string name="organize_clear_selection">Clear selection</string>
+    <string name="organize_photo_selected">Selected</string>
+    <string name="organize_newest">Newest first</string>
+    <string name="organize_oldest">Oldest first</string>
+    <string name="organize_all_filed">All photos have been filed into albums</string>
+    <string name="organize_remaining">%1$d remaining</string>
+    <string name="organize_undo">Undo</string>
+    <string name="organize_next_photo">Next photo</string>
+    <string name="organize_drag_hint">Long-press an album to drag it into place</string>
+    <string name="organize_grid_hint">Select photos above · long-press albums to reorder</string>
+    <string name="organize_move_earlier">Move album earlier</string>
+    <string name="organize_move_later">Move album later</string>
+    <string name="organize_undo_error">Could not undo all photos. Tap Undo to retry.</string>
+    <string name="organize_order_error">Could not save the album order. Drag again to retry.</string>
 </resources>

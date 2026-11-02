@@ -1,7 +1,19 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+}
+
+val releaseSigningFile = providers.environmentVariable("IMMICH_SIGNING_PROPERTIES")
+    .map { rootProject.file(it) }
+    .getOrElse(rootProject.file("keystore.properties"))
+val releaseSigningProperties = Properties().apply {
+    if (releaseSigningFile.isFile) releaseSigningFile.inputStream().use { load(it) }
+}
+fun signingProperty(name: String): String = requireNotNull(releaseSigningProperties.getProperty(name)?.takeIf { it.isNotBlank() }) {
+    "Missing $name in release signing properties: $releaseSigningFile"
 }
 
 android {
@@ -13,11 +25,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.minos2020.immichswipe"
+        applicationId = "com.minos2020.immichswipe.albums"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "3.0.1"
+        versionCode = 11
+        versionName = "3.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -29,8 +41,21 @@ android {
         includeInBundle = false
     }
 
+    signingConfigs {
+        if (releaseSigningFile.isFile) {
+            create("release") {
+                storeFile = rootProject.file(signingProperty("storeFile"))
+                storePassword = signingProperty("storePassword")
+                keyAlias = signingProperty("keyAlias")
+                keyPassword = signingProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            isDebuggable = false
+            if (releaseSigningFile.isFile) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -39,7 +64,7 @@ android {
         }
         debug {
             applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
+            versionNameSuffix = "-albums-debug"
         }
     }
     compileOptions {
@@ -47,7 +72,17 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     buildFeatures {
+        buildConfig = true
         compose = true
+    }
+}
+
+// Never silently deliver an unsigned release when signing credentials are absent.
+tasks.matching { it.name in setOf("packageRelease", "packageReleaseBundle") }.configureEach {
+    doFirst {
+        check(releaseSigningFile.isFile) {
+            "Release signing is missing. Copy keystore.properties.example to keystore.properties or set IMMICH_SIGNING_PROPERTIES."
+        }
     }
 }
 

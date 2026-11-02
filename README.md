@@ -1,4 +1,26 @@
-# Immich Swipe
+# Immich Swipe — 相册整理版
+
+保留原项目的照片卡片、视频预览和 Material 风格，主流程围绕未加入相册的照片和视频：
+
+- 首页直接显示未加入任何相册的媒体，按拍摄日期分组，可选最新/最早顺序、跳转日期、逐张或整日多选并批量加入相册。
+- 右侧 Swipe 直接处理同一份未归类队列。点击常驻相册按钮后，成功才自动显示下一张，已归类照片从首页移除，不会重复处理。
+- 相册采用三行紧凑网格，普通手机一屏约可显示 12 个，更多可横向滚动；底部导航压缩为 48dp 的纯图标栏。
+- 相册显示封面；长按拖动可调整位置，横向拖到边缘可滚动。顺序按服务器和账号保存，重启后保留，两个页面共用。
+- 新建相册可直接加入选中的照片。新建成功但添加失败时保留相册，方便直接重试。
+- 「Undo」真正取消最近一次相册归类（包括整批），照片回到待整理中。只撤回本次新增的关系，已有关系不会误删；撤回失败保留记录供重试。撤回记录保留在当前应用会话中。
+- 分享、跳转 Immich、旋转和显示模式等照片按钮已收起；保留预览全屏、视频静音。Next photo 跳过当前照片，左滑仍可标记删除，顶部垃圾桶打开汇总后确认删除。
+- 相册操作立即写入 Immich。批量操作逐张检查响应，失败照片保留供重试。
+- API Key 需 `user.read`、`asset.read`、`asset.view`、`asset.statistics`、`album.read`、`albumAsset.create`；撤回需 `albumAsset.delete`，新建需 `album.create`。左滑删除需 `asset.delete`。
+- 安装名为 **Immich Albums**，独立包名 `com.minos2020.immichswipe.albums`（调试版加 `.debug`），可与原版共存。正式版与之前的 debug 版包名、签名不同，会并存，需要重新登录并设置相册顺序；以后正式版使用同一发布签名即可覆盖升级。
+
+正式版构建与检查：`bash ./gradlew :app:assembleRelease :app:test :app:lintRelease`。需要 JDK 21 和 Android SDK 36.1。`:app:test` 运行项目现有的单元测试，安装包由 `assembleRelease` 生成。
+
+首次构建时复制 `keystore.properties.example` 为 `keystore.properties`，填写仓库外的发布密钥路径、别名和密码；也可通过环境变量 `IMMICH_SIGNING_PROPERTIES` 指定配置文件。密钥和实际签名配置不会提交到 Git，缺少配置时正式版打包会明确失败。后续升级必须使用同一密钥，请备份密钥及签名配置。
+
+正式包位于 `app/build/outputs/apk/release/app-release.apk`，版本为 **3.0.3**，包名 `com.minos2020.immichswipe.albums`，关闭调试和 HTTP 请求／响应详细日志。调试构建仍可使用 `bash ./gradlew :app:assembleDebug`。
+
+以下保留原项目说明。
+
 
 ![GitHub release (latest by date)](https://img.shields.io/github/v/release/minos2020/immich-swipe)
 ![GitHub License](https://img.shields.io/github/license/minos2020/immich-swipe)

@@ -48,6 +48,15 @@ class SessionDataStore(private val context: Context) {
         private val KEY_IMMICH_LONG_PRESS_WEB = androidx.datastore.preferences.core.booleanPreferencesKey("immich_long_press_web")
     }
 
+    // Account-specific destination order survives restarts and signing in again.
+    fun getAlbumOrder(account: String): Flow<List<String>> = context.dataStore.data.map {
+        it[stringPreferencesKey("album_order_$account")]?.split(",")?.filter(String::isNotBlank).orEmpty()
+    }
+
+    suspend fun saveAlbumOrder(account: String, ids: List<String>) {
+        context.dataStore.edit { it[stringPreferencesKey("album_order_$account")] = ids.distinct().joinToString(",") }
+    }
+
     suspend fun saveSession(baseUrl: String, apiKey: String, userId: String) {
         context.dataStore.edit { prefs ->
             prefs[KEY_BASE_URL] = baseUrl
@@ -196,6 +205,8 @@ class SessionDataStore(private val context: Context) {
     suspend fun saveImmichLongPressWeb(enabled: Boolean) { context.dataStore.edit { it[KEY_IMMICH_LONG_PRESS_WEB] = enabled } }
 
     suspend fun clearSession() {
-        context.dataStore.edit { it.clear() }
+        context.dataStore.edit { prefs ->
+            prefs.asMap().keys.filterNot { it.name.startsWith("album_order_") }.forEach { prefs.remove(it) }
+        }
     }
 }

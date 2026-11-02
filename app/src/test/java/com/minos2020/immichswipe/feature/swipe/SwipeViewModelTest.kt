@@ -4,6 +4,7 @@ import com.minos2020.immichswipe.MainDispatcherRule
 import com.minos2020.immichswipe.data.repository.AssetRepository
 import com.minos2020.immichswipe.data.repository.SessionRepository
 import com.minos2020.immichswipe.data.repository.SwipeDecisionRepository
+import com.minos2020.immichswipe.data.repository.AlbumMutationResult
 import com.minos2020.immichswipe.data.repository.AlbumRepository
 import com.minos2020.immichswipe.domain.model.Album
 import com.minos2020.immichswipe.domain.model.Asset
@@ -15,10 +16,14 @@ import com.minos2020.immichswipe.core.CardDisplayMode
 import com.minos2020.immichswipe.core.IconPosition
 import com.minos2020.immichswipe.core.PlaybackBehavior
 import android.util.Log
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -51,6 +56,8 @@ class SwipeViewModelTest {
     private val decisionsFlow = MutableStateFlow<List<SwipeDecisionEntity>>(emptyList())
     private val assetsFlow = MutableStateFlow<List<Asset>>(emptyList())
 
+    private val destination = Album("destination", "Family", assetCount = 0, albumThumbnailAssetId = null)
+
     @Before
     fun setup() {
         mockkStatic(Log::class)
@@ -64,6 +71,13 @@ class SwipeViewModelTest {
             0 
         }
         every { Log.e(any(), any()) } answers { println("ERROR: ${it.invocation.args[0]}: ${it.invocation.args[1]}"); 0 }
+
+        coEvery { albumRepository.getAlbums() } returns listOf(destination)
+        coEvery { sessionRepository.getAlbumOrder(any()) } returns emptyList()
+        coEvery { albumRepository.getAlbumIdsForAsset(any()) } returns emptySet()
+        coEvery { albumRepository.assignAssetsToAlbum(any(), any(), any()) } answers { AlbumMutationResult(secondArg<List<String>>().toSet()) }
+        coEvery { albumRepository.removeAssetsFromAlbum(any(), any(), any()) } answers { AlbumMutationResult(secondArg<List<String>>().toSet()) }
+        coEvery { assetRepository.getAssetDetail(any(), any()) } answers { createAsset(firstArg()) }
 
         every { sessionRepository.sessionConfig } returns sessionConfigFlow
         every { sessionRepository.includeArchived } returns includeArchivedFlow
@@ -217,4 +231,240 @@ class SwipeViewModelTest {
         assertTrue("La liste d'assets doit être vidée lors du changement d'utilisateur", 
             viewModel.uiState.value.assets.isEmpty())
     }
+    @Test
+    fun `Adding to an album advances only after success without recording a keep decision`() = runTest {
+        assetsFlow.value = listOf(createAsset("photo_1"), createAsset("photo_2"))
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, testAlbum)
+        testScheduler.advanceUntilIdle()
+        vm.addCurrentAssetToAlbum(destination)
+        testScheduler.advanceUntilIdle()
+        assertEquals("photo_2", vm.uiState.value.currentAsset?.id)
+        assertEquals(setOf(destination.id), vm.uiState.value.albumAssignments["photo_1"])
+        assertEquals(1, vm.uiState.value.filedCount)
+        assertEquals(1, vm.uiState.value.remainingCount)
+        assertTrue(vm.uiState.value.decisions.isEmpty())
+        coVerify(exactly = 0) { swipeDecisionRepository.saveDecision(any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `Failed album writes keep the photo visible and allow retry`() = runTest {
+        assetsFlow.value = listOf(createAsset("photo_1"), createAsset("photo_2"))
+        coEvery { albumRepository.assignAssetsToAlbum(any(), any(), any()) } throws IllegalStateException("denied")
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, testAlbum)
+        testScheduler.advanceUntilIdle()
+        vm.addCurrentAssetToAlbum(destination)
+        testScheduler.advanceUntilIdle()
+        assertEquals("photo_1", vm.uiState.value.currentAsset?.id)
+        assertTrue(vm.uiState.value.albumAssignments.isEmpty())
+        assertEquals(AlbumActionError.ADD, vm.uiState.value.albumActionError)
+        assertEquals(null, vm.uiState.value.error)
+        coEvery { albumRepository.assignAssetsToAlbum(any(), any(), any()) } answers { AlbumMutationResult(secondArg<List<String>>().toSet()) }
+        vm.addCurrentAssetToAlbum(destination)
+        testScheduler.advanceUntilIdle()
+        assertEquals("photo_2", vm.uiState.value.currentAsset?.id)
+    }
+
+    @Test
+    fun `Filed photos cannot be added twice or reopened from the old index`() = runTest {
+        assetsFlow.value = listOf(createAsset("photo_1"))
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, testAlbum)
+        testScheduler.advanceUntilIdle()
+        vm.addCurrentAssetToAlbum(destination)
+        testScheduler.advanceUntilIdle()
+        vm.onMoveToAsset(0)
+        vm.addCurrentAssetToAlbum(destination)
+        testScheduler.advanceUntilIdle()
+        assertEquals(null, vm.uiState.value.currentAsset)
+        assertTrue(vm.uiState.value.unfiledAssets.isEmpty())
+        coVerify(exactly = 1) { albumRepository.assignAssetsToAlbum(any(), any(), any()) }
+    }
+
+    @Test
+    fun `Rapid taps and swipes cannot assign the wrong photo while a write is pending`() = runTest {
+        assetsFlow.value = listOf(createAsset("photo_1"), createAsset("photo_2"))
+        val pending = CompletableDeferred<Unit>()
+        coEvery { albumRepository.assignAssetsToAlbum(any(), any(), any()) } coAnswers { pending.await(); AlbumMutationResult(secondArg<List<String>>().toSet()) }
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, testAlbum)
+        testScheduler.advanceUntilIdle()
+        vm.addCurrentAssetToAlbum(destination)
+        vm.addCurrentAssetToAlbum(destination)
+        runCurrent()
+        vm.onMoveToAsset(1)
+        vm.onSwipe(SwipeDecision.DELETE)
+        vm.undo()
+        assertEquals("photo_1", vm.uiState.value.currentAsset?.id)
+        assertTrue(vm.uiState.value.isAddingToAlbum)
+        pending.complete(Unit)
+        testScheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { albumRepository.assignAssetsToAlbum(destination.id, listOf("photo_1"), testUserId) }
+        assertEquals("photo_2", vm.uiState.value.currentAsset?.id)
+    }
+
+    @Test
+    fun `Created album remains available when adding fails so retry does not create duplicates`() = runTest {
+        assetsFlow.value = listOf(createAsset("photo_1"))
+        val created = destination.copy(id = "new", albumName = "New album")
+        coEvery { albumRepository.createAlbum("New album") } returns created
+        coEvery { albumRepository.assignAssetsToAlbum(any(), any(), any()) } throws IllegalStateException("denied")
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, testAlbum)
+        testScheduler.advanceUntilIdle()
+        vm.setShowCreateAlbum(true)
+        vm.createAlbumAndAddCurrentAsset("  New album  ")
+        testScheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.availableAlbums.any { it.id == created.id })
+        assertEquals(false, vm.uiState.value.showCreateAlbum)
+        assertEquals("photo_1", vm.uiState.value.currentAsset?.id)
+        assertEquals(AlbumActionError.ADD, vm.uiState.value.albumActionError)
+        coEvery { albumRepository.assignAssetsToAlbum(any(), any(), any()) } answers { AlbumMutationResult(secondArg<List<String>>().toSet()) }
+        vm.addCurrentAssetToAlbum(created)
+        testScheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { albumRepository.createAlbum(any()) }
+        assertEquals(null, vm.uiState.value.currentAsset)
+    }
+
+    @Test
+    fun `Create and add completes on the final photo`() = runTest {
+        assetsFlow.value = listOf(createAsset("photo_1"))
+        coEvery { albumRepository.createAlbum("Travel") } returns destination
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, testAlbum)
+        testScheduler.advanceUntilIdle()
+        vm.createAlbumAndAddCurrentAsset("Travel")
+        testScheduler.advanceUntilIdle()
+        coVerify { albumRepository.assignAssetsToAlbum(destination.id, listOf("photo_1"), testUserId) }
+        assertEquals(null, vm.uiState.value.currentAsset)
+        assertEquals(1f, vm.uiState.value.progress)
+        assertEquals(false, vm.uiState.value.isAddingToAlbum)
+    }
+
+    @Test
+    fun `Batch assignment removes only confirmed photos and keeps failures selected`() = runTest {
+        assetsFlow.value = (1..3).map { createAsset("photo_$it") }
+        coEvery { albumRepository.assignAssetsToAlbum(any(), any(), any()) } returns AlbumMutationResult(
+            setOf("photo_1"), setOf("photo_2"), setOf("photo_3"))
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, testAlbum)
+        testScheduler.advanceUntilIdle()
+        vm.selectAssets(setOf("photo_1", "photo_2", "photo_3"))
+        vm.addSelectedAssetsToAlbum(destination)
+        testScheduler.advanceUntilIdle()
+        assertEquals(listOf("photo_3"), vm.uiState.value.unfiledAssets.map { it.id })
+        assertEquals(setOf("photo_3"), vm.uiState.value.selectedAssetIds)
+        assertEquals(AlbumActionError.ADD, vm.uiState.value.albumActionError)
+        vm.undo()
+        testScheduler.advanceUntilIdle()
+        coVerify { albumRepository.removeAssetsFromAlbum(destination.id, listOf("photo_1"), testUserId) }
+        assertEquals(setOf("photo_1", "photo_3"), vm.uiState.value.unfiledAssets.map { it.id }.toSet())
+        assertTrue("Pre-existing membership must not be undone", "photo_2" in vm.uiState.value.albumAssignments)
+    }
+
+    @Test
+    fun `Failed undo keeps history for retry and never restores the photo prematurely`() = runTest {
+        assetsFlow.value = listOf(createAsset("photo_1"))
+        coEvery { albumRepository.removeAssetsFromAlbum(any(), any(), any()) } throws IllegalStateException("denied")
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, testAlbum)
+        testScheduler.advanceUntilIdle()
+        vm.addCurrentAssetToAlbum(destination)
+        testScheduler.advanceUntilIdle()
+        vm.undo()
+        testScheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.unfiledAssets.isEmpty())
+        assertTrue(vm.uiState.value.canUndo)
+        assertEquals(AlbumActionError.UNDO, vm.uiState.value.albumActionError)
+        coEvery { albumRepository.removeAssetsFromAlbum(any(), any(), any()) } returns AlbumMutationResult(setOf("photo_1"))
+        vm.undo()
+        testScheduler.advanceUntilIdle()
+        assertEquals("photo_1", vm.uiState.value.currentAsset?.id)
+        assertEquals(1, vm.uiState.value.unfiledAssets.size)
+        assertEquals(false, vm.uiState.value.canUndo)
+    }
+
+    @Test
+    fun `Undo restores the original photo even after refreshing the server queue`() = runTest {
+        assetsFlow.value = listOf(createAsset("photo_1"), createAsset("photo_2"))
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, testAlbum)
+        testScheduler.advanceUntilIdle()
+        vm.addCurrentAssetToAlbum(destination)
+        testScheduler.advanceUntilIdle()
+        assetsFlow.value = listOf(createAsset("photo_2"))
+        testScheduler.advanceUntilIdle()
+        vm.undo()
+        testScheduler.advanceUntilIdle()
+        assertEquals(setOf("photo_1", "photo_2"), vm.uiState.value.unfiledAssets.map { it.id }.toSet())
+        assertEquals("photo_1", vm.uiState.value.currentAsset?.id)
+    }
+
+    @Test
+    fun `Undo does not show photos filed in another album by another client`() = runTest {
+        assetsFlow.value = listOf(createAsset("photo_1"))
+        coEvery { albumRepository.getAlbumIdsForAsset("photo_1") } returns setOf("another-album")
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, testAlbum)
+        testScheduler.advanceUntilIdle()
+        vm.addCurrentAssetToAlbum(destination)
+        testScheduler.advanceUntilIdle()
+        vm.undo()
+        testScheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.unfiledAssets.isEmpty())
+    }
+
+    @Test
+    fun `Album order is loaded moved and saved without changing destinations`() = runTest {
+        val second = destination.copy(id = "second", albumName = "Travel")
+        val third = destination.copy(id = "third", albumName = "Zoo")
+        coEvery { albumRepository.getAlbums() } returns listOf(destination, second, third)
+        coEvery { sessionRepository.getAlbumOrder(any()) } returns listOf("third", "destination", "deleted-album")
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, testAlbum)
+        testScheduler.advanceUntilIdle()
+        assertEquals(listOf("third", "destination", "second"), vm.uiState.value.availableAlbums.map { it.id })
+        vm.reorderAlbum("second", "third")
+        vm.saveAlbumOrder()
+        testScheduler.advanceUntilIdle()
+        assertEquals(listOf("second", "third", "destination"), vm.uiState.value.availableAlbums.map { it.id })
+        coVerify { sessionRepository.saveAlbumOrder(any(), listOf("second", "third", "destination")) }
+    }
+
+    @Test
+    fun `Orphan review includes previously kept photos and never falls back to filed photos`() = runTest {
+        val orphanAlbum = testAlbum.copy(id = Album.VIRTUAL_ORPHANS_ID)
+        every { swipeDecisionRepository.getDecisionsForAlbum(orphanAlbum.id, testUserId) } returns decisionsFlow
+        assetsFlow.value = listOf(createAsset("photo_1"), createAsset("photo_2"))
+        decisionsFlow.value = listOf(SwipeDecisionEntity("photo_1", orphanAlbum.id, testUserId, "KEEP", isSynced = true))
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, orphanAlbum)
+        testScheduler.advanceUntilIdle()
+        assertEquals(2, vm.uiState.value.assets.size)
+        vm.addCurrentAssetToAlbum(destination)
+        testScheduler.advanceUntilIdle()
+        vm.onSwipe(SwipeDecision.SKIP)
+        testScheduler.advanceUntilIdle()
+        assertEquals(null, vm.uiState.value.currentAsset)
+        assertEquals(listOf("photo_2"), vm.uiState.value.unfiledAssets.map { it.id })
+    }
+
+    @Test
+    fun `Orphan photos use date order even when previous settings used size or type priority`() = runTest {
+        val orphanAlbum = testAlbum.copy(id = Album.VIRTUAL_ORPHANS_ID)
+        every { swipeDecisionRepository.getDecisionsForAlbum(orphanAlbum.id, testUserId) } returns decisionsFlow
+        swipeSortOrderFlow.value = SwipeSortOrder.SIZE_DESC
+        swipeSortPriorityFlow.value = SwipeSortPriority.VIDEOS_FIRST
+        assetsFlow.value = listOf(
+            createAsset("old").copy(fileCreatedAt = "2024-01-01T12:00:00Z", type = "VIDEO"),
+            createAsset("new").copy(fileCreatedAt = "2026-01-01T12:00:00Z"))
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, orphanAlbum)
+        testScheduler.advanceUntilIdle()
+        assertEquals(listOf("new", "old"), vm.uiState.value.unfiledAssets.map { it.id })
+        swipeSortOrderFlow.value = SwipeSortOrder.DATE_ASC
+        testScheduler.advanceUntilIdle()
+        assertEquals(listOf("old", "new"), vm.uiState.value.unfiledAssets.map { it.id })
+    }
+
+    @Test
+    fun `A previous session skip does not hide an orphan on launch`() = runTest {
+        val orphanAlbum = testAlbum.copy(id = Album.VIRTUAL_ORPHANS_ID)
+        every { swipeDecisionRepository.getDecisionsForAlbum(orphanAlbum.id, testUserId) } returns decisionsFlow
+        assetsFlow.value = listOf(createAsset("photo_1"))
+        decisionsFlow.value = listOf(SwipeDecisionEntity("photo_1", orphanAlbum.id, testUserId, "SKIP", isSynced = false))
+        val vm = SwipeViewModel(assetRepository, sessionRepository, swipeDecisionRepository, albumRepository, orphanAlbum)
+        testScheduler.advanceUntilIdle()
+        assertEquals("photo_1", vm.uiState.value.currentAsset?.id)
+        assertEquals(1, vm.uiState.value.remainingCount)
+    }
+
 }

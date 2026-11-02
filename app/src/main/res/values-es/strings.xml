@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Immich Swipe</string>
+    <string name="app_name">Immich Albums</string>
 
     <!-- Pantalla de inicio de sesión -->
     <string name="login_url_label">URL del servidor</string>
@@ -98,7 +98,7 @@
     <string name="settings_skip_warning_msg">Al cambiar esta duración, algunas fotos que habías \'omitido\' podrían reaparecer de inmediato en tu cola de ordenación si superan el nuevo límite.</string>
     <string name="settings_section_interaction">Interacción</string>
     <string name="settings_swipe_invert_label">Invertir dirección del swipe</string>
-    <string name="settings_swipe_invert_desc">Izquierda para conservar, derecha para eliminar</string>
+    <string name="settings_swipe_invert_desc">Izquierda para saltar, derecha para eliminar</string>
     <string name="settings_fullscreen_pos_label">Posición del botón de pantalla completa</string>
     <string name="settings_immich_pos_label">Posición del botón Abrir en Immich</string>
     <string name="settings_immich_open_mode_label">Modo de apertura</string>
@@ -238,4 +238,60 @@
     <string name="settings_logs_clear">Borrar registros</string>
     <string name="settings_logs_empty">No hay registros disponibles por el momento.</string>
     <string name="settings_logs_copied_toast">Registros copiados al portapapeles</string>
+
+    <!-- Album organizing -->
+    <string name="organize_filed">Clasificadas</string>
+    <string name="organize_new_album">Nuevo álbum</string>
+    <string name="organize_create_and_add">Crear y añadir foto</string>
+    <string name="organize_album_name">Nombre del álbum</string>
+    <string name="organize_no_albums">Crea un álbum para empezar</string>
+    <string name="organize_no_matches">No hay álbumes coincidentes</string>
+    <string name="organize_auto_next">Siguiente foto al añadir</string>
+    <string name="organize_added_to">Añadida a %1$s</string>
+    <string name="organize_undo_swipe">Deshacer deslizamiento (los álbumes siguen guardados)</string>
+    <string name="organize_load_error">No se pudieron cargar los álbumes. Revisa la conexión y el permiso album.read.</string>
+    <string name="organize_add_error">Foto no añadida. Toca el álbum para reintentar y revisa el permiso albumAsset.create.</string>
+    <string name="organize_create_error">No se pudo crear el álbum. Revisa la conexión y el permiso album.create.</string>
+
+    <string name="home_skip_count">%1$d fotos</string>
+    <string name="home_virtual_all_assets">Todos los archivos</string>
+    <string name="home_virtual_all_assets_desc">Todos los archivos de tu biblioteca según tus permisos</string>
+    <string name="home_virtual_orphans">Sin álbum</string>
+    <string name="home_virtual_orphans_desc">Archivos que no pertenecen a ningún álbum</string>
+    <string name="settings_interaction_sorting_title">Acciones de clasificación</string>
+    <string name="settings_interaction_card_title">Acciones de la tarjeta</string>
+    <string name="settings_tri_add_to_album">Botón de añadir a un álbum</string>
+    <string name="settings_card_fullscreen">Botón de pantalla completa</string>
+    <string name="settings_card_immich">Botón para abrir en Immich</string>
+    <string name="settings_card_display_mode">Botón de modo de visualización</string>
+    <string name="settings_card_mute">Botón de silencio para vídeos</string>
+    <string name="settings_mute_pos_label">Posición del botón de silencio</string>
+    <string name="settings_share_pos_label">Posición del botón de compartir</string>
+    <string name="swipe_toggle_mute">Activar o desactivar el sonido</string>
+    <string name="swipe_metadata_description">Descripción</string>
+    <string name="swipe_metadata_description_placeholder">Añadir una descripción…</string>
+    <string name="swipe_reset_button">Reiniciar sesión</string>
+    <string name="swipe_reset_confirm_title">¿Reiniciar decisiones?</string>
+    <string name="swipe_reset_confirm_msg">¿Quieres eliminar las %1$d decisiones sin sincronizar de esta sesión?\nEsta acción no se puede deshacer.</string>
+    <string name="settings_logs_confirm_clear_title">Borrar registros</string>
+    <string name="settings_logs_confirm_clear_msg">¿Quieres borrar todos los registros de la aplicación?\nEsta acción no se puede deshacer.</string>
+
+    <string name="organize_unfiled">Not in any album</string>
+    <string name="organize_selected">%1$d selected</string>
+    <string name="organize_photo_count">%1$d photos · select a day or tap photos</string>
+    <string name="organize_jump_date">Jump to date</string>
+    <string name="organize_clear_selection">Clear selection</string>
+    <string name="organize_photo_selected">Selected</string>
+    <string name="organize_newest">Newest first</string>
+    <string name="organize_oldest">Oldest first</string>
+    <string name="organize_all_filed">All photos have been filed into albums</string>
+    <string name="organize_remaining">%1$d remaining</string>
+    <string name="organize_undo">Undo</string>
+    <string name="organize_next_photo">Next photo</string>
+    <string name="organize_drag_hint">Long-press an album to drag it into place</string>
+    <string name="organize_grid_hint">Select photos above · long-press albums to reorder</string>
+    <string name="organize_move_earlier">Move album earlier</string>
+    <string name="organize_move_later">Move album later</string>
+    <string name="organize_undo_error">Could not undo all photos. Tap Undo to retry.</string>
+    <string name="organize_order_error">Could not save the album order. Drag again to retry.</string>
 </resources>

@@ -1,5 +1,6 @@
 package com.minos2020.immichswipe.data.api
 
+import com.minos2020.immichswipe.BuildConfig
 import com.minos2020.immichswipe.core.ConnectionLevel
 import com.minos2020.immichswipe.core.DiagStatus
 import com.minos2020.immichswipe.core.SessionConfig
@@ -18,7 +19,9 @@ object RetrofitFactory {
     fun create(config: SessionConfig): ImmichApi {
         // Intercepteur pour logger les requêtes et réponses HTTP
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY else HttpLoggingInterceptor.Level.NONE
+            redactHeader("x-api-key")
+            redactHeader("Authorization")
         }
 
         // Intercepteur pour ajouter automatiquement la clé API dans les headers de chaque requête.

@@ -276,9 +276,6 @@ class HomeViewModel(
         val current = _uiState.value.currentTab
         
         // SOLUTION : Rafraîchissement systématique si on revient sur HOME
-        if (tab == HomeTab.HOME && current != HomeTab.HOME) {
-            refreshAlbums()
-        }
 
         val nextPrevious = if (tab == HomeTab.SETTINGS) current else _uiState.value.previousTab
         _uiState.update { 
@@ -287,13 +284,7 @@ class HomeViewModel(
     }
 
     fun goBack() {
-        val previous = _uiState.value.previousTab
-        
-        /*// SOLUTION : Rafraîchissement systématique si on revient sur HOME
-        if (previous == HomeTab.HOME) {
-            refreshAlbums()
-        }*/
-        
+        val previous = if (_uiState.value.currentTab == HomeTab.SETTINGS) _uiState.value.previousTab else HomeTab.HOME
         _uiState.update { it.copy(currentTab = previous) }
     }
 

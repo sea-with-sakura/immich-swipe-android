@@ -18,6 +18,9 @@ interface ImmichApi {
     @GET("api/albums")
     suspend fun getAlbums(): List<Album>
 
+    @POST("api/albums")
+    suspend fun createAlbum(@Body request: CreateAlbumRequest): Album
+
     @GET("api/albums")
     suspend fun getAlbumsForAsset(@retrofit2.http.Query("assetId") assetId: String): List<Album>
 
@@ -52,8 +55,15 @@ interface ImmichApi {
     suspend fun editAsset(@Path("id") assetId: String, @Body request: EditAssetRequest)
 
     @PUT("api/albums/{id}/assets")
-    suspend fun addAssetsToAlbum(@Path("id") albumId: String, @Body request: AddAssetsToAlbumRequest)
+    suspend fun addAssetsToAlbum(@Path("id") albumId: String, @Body request: AddAssetsToAlbumRequest): List<AlbumAssetResult>
+
+    @HTTP(method = "DELETE", path = "api/albums/{id}/assets", hasBody = true)
+    suspend fun removeAssetsFromAlbum(@Path("id") albumId: String, @Body request: AddAssetsToAlbumRequest): List<AlbumAssetResult>
 }
+
+data class CreateAlbumRequest(val albumName: String)
+
+data class AlbumAssetResult(val id: String, val success: Boolean, val error: String? = null)
 
 /**
  * Corps de la requête pour ajouter des assets à un album.

@@ -16,6 +16,10 @@ enum class SwipeDecision {
     KEEP, DELETE, SKIP, ARCHIVE, LOCK
 }
 
+enum class AlbumActionError { LOAD, ADD, CREATE, UNDO, ORDER }
+
+data class AlbumUndoEntry(val key: String, val albumId: String, val assetIds: Set<String>, val assets: List<Asset> = emptyList())
+
 /**
  * État de la session de tri (Swipe).
  */
@@ -65,16 +69,25 @@ data class SwipeUiState(
     val immichLongPressWeb: Boolean = false,
 
     // États pour l'ajout à un album
-    val showAlbumSelection: Boolean = false,
+    val showCreateAlbum: Boolean = false,
     val availableAlbums: List<Album> = emptyList(),
     val albumSearchQuery: String = "",
     val isAddingToAlbum: Boolean = false,
+    val isLoadingAlbums: Boolean = false,
+    val albumActionError: AlbumActionError? = null,
+    // Album assignments are already on the server, separate from pending swipe decisions.
+    val albumAssignments: Map<String, Set<String>> = emptyMap(),
+    val lastAddedAlbumName: String? = null,
+    val albumUndoHistory: List<AlbumUndoEntry> = emptyList(),
+    val selectedAssetIds: Set<String> = emptySet(),
 
     // Statistiques pré-calculées pour le Review Screen (Performance)
     val summaryDeletedAssets: List<Asset> = emptyList(),
     val summaryCounts: Map<SwipeDecision, Int> = emptyMap(),
     val summarySizes: Map<SwipeDecision, Long> = emptyMap()
 ) {
+    val unfiledAssets: List<Asset> get() = assets.filter { it.id !in albumAssignments && decisions[it.id] != SwipeDecision.DELETE }
+    val canUndo: Boolean get() = history.isNotEmpty()
     val currentAsset: Asset? get() = assets.getOrNull(currentIndex)
     
     /**
@@ -100,7 +113,9 @@ data class SwipeUiState(
 
     // Statistiques de tri
     val totalCount: Int get() = assets.size
-    val processedCount: Int get() = decisions.size
+    fun isProcessed(assetId: String): Boolean = assetId in decisions || assetId in albumAssignments
+    val filedCount: Int get() = assets.count { it.id in albumAssignments }
+    val processedCount: Int get() = assets.count { isProcessed(it.id) }
     val remainingCount: Int get() = totalCount - processedCount
 
     val keptCount: Int get() = summaryCounts[SwipeDecision.KEEP] ?: 0
@@ -121,7 +136,7 @@ data class SwipeUiState(
      * Taille restante : Somme des tailles connues + estimation (moyenne) pour les inconnues.
      */
     val remainingSize: Long get() {
-        val unprocessed = assets.filter { !decisions.containsKey(it.id) }
+        val unprocessed = assets.filter { !isProcessed(it.id) }
         val knownSizes = assetSizes.values.filter { it > 0 }
         val avg = if (knownSizes.isEmpty()) 0L else knownSizes.sum() / knownSizes.size
         
@@ -134,7 +149,7 @@ data class SwipeUiState(
     /**
      * Indique si la taille "Restant" contient des estimations.
      */
-    val isRemainingEstimated: Boolean get() = assets.any { !decisions.containsKey(it.id) && (assetSizes[it.id] ?: 0L) == 0L }
+    val isRemainingEstimated: Boolean get() = assets.any { !isProcessed(it.id) && (assetSizes[it.id] ?: 0L) == 0L }
 
     // Progression (0.0f à 1.0f)
     val progress: Float get() = if (totalCount > 0) processedCount.toFloat() / totalCount else 0f

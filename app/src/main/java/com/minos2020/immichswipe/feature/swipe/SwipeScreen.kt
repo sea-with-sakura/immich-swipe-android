@@ -143,7 +143,6 @@ private fun Modifier.rotateLayout(rotation: Int) = layout { measurable, constrai
 @Composable
 fun SwipeScreen(
     viewModel: SwipeViewModel,
-    availableAlbums: List<Album> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -164,22 +163,12 @@ fun SwipeScreen(
         modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // 0. En-tête avec nom de l'album et statistiques
-        SwipeHeader(
-            uiState = uiState,
-            onSummaryClick = { viewModel.toggleSummary(true) }
-        )
-
-        // 1. Timeline (Barre du haut avec vignettes)
-        AssetTimeline(
-            assets = uiState.assets,
-            decisions = uiState.decisions,
-            currentIndex = uiState.currentIndex,
-            isFavorite = { uiState.isFavorite(it) },
-            isArchived = { uiState.isArchived(it) },
-            isLocked = { uiState.isLocked(it) },
-            onAssetClick = { viewModel.onMoveToAsset(it) }
-        )
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(uiState.currentAsset?.fileCreatedAt?.take(10) ?: stringResource(R.string.organize_unfiled),
+                style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.organize_remaining, uiState.remainingCount), style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
 
         // 2. Zone centrale : La pile de cartes
         Box(
@@ -225,6 +214,7 @@ fun SwipeScreen(
                             asset = asset,
                             onSwipe = { viewModel.onSwipe(it) },
                             isNext = isNextCard,
+                            enabled = !uiState.isAddingToAlbum && !uiState.isSyncing,
                             playbackBehavior = uiState.playbackBehavior,
                             isSwipeInverted = uiState.isSwipeInverted,
                             fullscreenButtonPosition = uiState.fullscreenButtonPosition,
@@ -235,12 +225,12 @@ fun SwipeScreen(
                             rotateButtonPosition = uiState.rotateButtonPosition,
                             isMuted = uiState.isMuted,
                             cardDisplayMode = uiState.cardDisplayMode,
-                            showShareButton = uiState.showShareButton,
-                            showFullscreenButton = uiState.showFullscreenButton,
-                            showImmichButton = uiState.showImmichButton,
-                            showCardDisplayButton = uiState.showCardDisplayButton,
+                            showShareButton = false,
+                            showFullscreenButton = true,
+                            showImmichButton = false,
+                            showCardDisplayButton = false,
                             showMuteButton = uiState.showMuteButton,
-                            showRotateButton = uiState.showRotateButton,
+                            showRotateButton = false,
                             immichOpenMode = uiState.immichOpenMode,
                             immichLongPressWeb = uiState.immichLongPressWeb,
                             localRotation = uiState.localRotations[asset.id] ?: 0,
@@ -266,107 +256,26 @@ fun SwipeScreen(
             }
         }
 
-        // 3. Barre d'actions en bas
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 24.dp)
-                .padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // BOUTON SUPPRIMER (DELETE)
-            if (uiState.showKeepDeleteButtons) {
-                FloatingActionButton(
-                    onClick = { viewModel.onSwipe(SwipeDecision.DELETE) },
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                    shape = CircleShape,
-                    modifier = Modifier.size(56.dp)
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.swipe_delete))
-                }
-            }
+        AlbumOrganizingPanel(
+            uiState = uiState,
+            onAlbumSelected = viewModel::addCurrentAssetToAlbum,
+            onSearchQueryChange = viewModel::setAlbumSearchQuery,
+            onCreateAlbum = { viewModel.setShowCreateAlbum(true) },
+            onRetry = viewModel::loadAvailableAlbums,
+            onUndo = viewModel::undo,
+            onSkip = { viewModel.onSwipe(SwipeDecision.SKIP) },
+            onReorder = viewModel::reorderAlbum,
+            onOrderSaved = viewModel::saveAlbumOrder
+        )
+    }
 
-            // UNDO
-            IconButton(
-                onClick = { viewModel.undo() },
-                enabled = uiState.currentIndex > 0 || uiState.history.isNotEmpty(),
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = stringResource(R.string.nav_back))
-            }
-
-            // ARCHIVE (Optionnel)
-            if (uiState.showArchiveButton) {
-                IconButton(
-                    onClick = { viewModel.toggleArchive() },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(Icons.Default.Archive, contentDescription = stringResource(R.string.swipe_archive), tint = MaterialTheme.colorScheme.primary)
-                }
-            }
-
-            // FAVORITE (Optionnel - Coeur)
-            if (uiState.showFavoriteButton) {
-                val isFav = uiState.currentAsset?.let { uiState.isFavorite(it.id) } ?: false
-                IconButton(
-                    onClick = { viewModel.toggleFavorite() },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = stringResource(R.string.swipe_favorite),
-                        tint = if (isFav) Color.Red else MaterialTheme.colorScheme.onBackground
-                    )
-                }
-            }
-
-            // LOCK (Optionnel)
-            if (uiState.showLockButton) {
-                IconButton(
-                    onClick = { viewModel.toggleLock() },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(Icons.Default.Lock, contentDescription = stringResource(R.string.swipe_locked), tint = MaterialTheme.colorScheme.outline)
-                }
-            }
-
-            // AJOUTER À UN ALBUM
-            if (uiState.showAddToAlbumButton) {
-                IconButton(
-                    onClick = { viewModel.toggleAlbumSelection(true, availableAlbums) },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.LibraryAdd,
-                        contentDescription = stringResource(R.string.swipe_add_to_album),
-                        tint = MaterialTheme.colorScheme.secondary
-                    )
-                }
-            }
-
-            // SKIP
-            IconButton(
-                onClick = { viewModel.onSwipe(SwipeDecision.SKIP) },
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = stringResource(R.string.swipe_skip))
-            }
-
-            // BOUTON GARDER (KEEP)
-            if (uiState.showKeepDeleteButtons) {
-                FloatingActionButton(
-                    onClick = { viewModel.onSwipe(SwipeDecision.KEEP) },
-                    containerColor = MaterialGreen,
-                    contentColor = Color.White,
-                    shape = CircleShape,
-                    modifier = Modifier.size(56.dp)
-                ) {
-                    Icon(Icons.Default.Check, contentDescription = stringResource(R.string.swipe_keep))
-                }
-            }
-        }
+    if (uiState.showCreateAlbum) {
+        CreateAlbumDialog(
+            isSaving = uiState.isAddingToAlbum,
+            error = uiState.albumActionError,
+            onCreate = viewModel::createAlbumAndAddCurrentAsset,
+            onDismiss = { viewModel.setShowCreateAlbum(false) }
+        )
     }
 
     // Affichage du résumé
@@ -409,17 +318,7 @@ fun SwipeScreen(
         )
     }
 
-    // Popup de sélection d'album
-    if (uiState.showAlbumSelection) {
-        AlbumSelectionPopup(
-            availableAlbums = uiState.availableAlbums,
-            searchQuery = uiState.albumSearchQuery,
-            onSearchQueryChange = { viewModel.setAlbumSearchQuery(it) },
-            onAlbumSelected = { viewModel.addCurrentAssetToAlbum(it) },
-            onDismiss = { viewModel.toggleAlbumSelection(false) },
-            isAdding = uiState.isAddingToAlbum
-        )
-    }
+
 }
 
 
@@ -638,7 +537,7 @@ fun SwipeHeader(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            StatBadge(label = stringResource(R.string.swipe_keep), count = uiState.allKeptCount, color = MaterialGreen)
+            StatBadge(label = stringResource(R.string.organize_filed), count = uiState.filedCount, color = MaterialGreen)
             StatBadge(label = stringResource(R.string.swipe_delete), count = uiState.deletedCount, color = MaterialRed)
             StatBadge(label = stringResource(R.string.swipe_skip), count = uiState.skippedCount, color = Color.Gray)
             StatBadge(label = stringResource(R.string.swipe_remaining), count = uiState.remainingCount, color = MaterialTheme.colorScheme.outline)
@@ -707,14 +606,15 @@ fun AssetTimeline(
     isFavorite: (String) -> Boolean,
     isArchived: (String) -> Boolean,
     isLocked: (String) -> Boolean,
-    onAssetClick: (Int) -> Unit
+    onAssetClick: (Int) -> Unit,
+    filedAssetIds: Set<String> = emptySet()
 ) {
     val context = LocalContext.current
     val listState = rememberLazyListState()
 
     LaunchedEffect(currentIndex) {
         if (assets.isNotEmpty()) {
-            listState.animateScrollToItem(currentIndex)
+            listState.animateScrollToItem(currentIndex.coerceIn(0, assets.lastIndex))
         }
     }
 
@@ -817,6 +717,9 @@ fun AssetTimeline(
                         }
                     }
 
+                    if (asset.id in filedAssetIds) {
+                        TimelineMiniBadge(Icons.Default.PhotoAlbum, MaterialGreen)
+                    }
                     if (hasHeart) {
                         TimelineMiniBadge(Icons.Default.Favorite, Color.Red)
                     }
@@ -879,7 +782,8 @@ fun SwipeCard(
     onToggleMute: () -> Unit,
     onShare: () -> Unit,
     onRotate: () -> Unit,
-    onUpdateDescription: (String, String) -> Unit
+    onUpdateDescription: (String, String) -> Unit,
+    enabled: Boolean = true
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -1022,8 +926,8 @@ fun SwipeCard(
                         rotationZ = offsetX.value / 40f
                     }
                 }
-                .pointerInput(isNext) {
-                    if (isNext) return@pointerInput
+                .pointerInput(isNext, enabled) {
+                    if (isNext || !enabled) return@pointerInput
                     detectDragGestures(
                         onDragEnd = {
                             scope.launch {
@@ -1031,10 +935,10 @@ fun SwipeCard(
                                 val currentY = offsetY.value
                                 if (currentX > 250) {
                                     offsetX.animateTo(1500f, tween(150))
-                                    onSwipe(if (isSwipeInverted) SwipeDecision.DELETE else SwipeDecision.KEEP)
+                                    onSwipe(if (isSwipeInverted) SwipeDecision.DELETE else SwipeDecision.SKIP)
                                 } else if (currentX < -250) {
                                     offsetX.animateTo(-1500f, tween(150))
-                                    onSwipe(if (isSwipeInverted) SwipeDecision.KEEP else SwipeDecision.DELETE)
+                                    onSwipe(if (isSwipeInverted) SwipeDecision.SKIP else SwipeDecision.DELETE)
                                 } else {
                                     launch { offsetX.animateTo(0f, spring(dampingRatio = Spring.DampingRatioLowBouncy)) }
 
@@ -1312,12 +1216,12 @@ fun SwipeCard(
                         if (keepAlpha > 0f) {
                             IndicatorBadge(stringResource(R.string.swipe_delete_upper), MaterialRed, Alignment.TopStart, keepAlpha * 0.9f)
                         } else if (deleteAlpha > 0f) {
-                            IndicatorBadge(stringResource(R.string.swipe_keep_upper), MaterialGreen, Alignment.TopEnd, deleteAlpha * 0.9f)
+                            IndicatorBadge(stringResource(R.string.swipe_skip), MaterialGreen, Alignment.TopEnd, deleteAlpha * 0.9f)
                         }
                     } else {
                         // Comportement normal
                         if (keepAlpha > 0f) {
-                            IndicatorBadge(stringResource(R.string.swipe_keep_upper), MaterialGreen, Alignment.TopStart, keepAlpha * 0.9f)
+                            IndicatorBadge(stringResource(R.string.swipe_skip), MaterialGreen, Alignment.TopStart, keepAlpha * 0.9f)
                         } else if (deleteAlpha > 0f) {
                             IndicatorBadge(stringResource(R.string.swipe_delete_upper), MaterialRed, Alignment.TopEnd, deleteAlpha * 0.9f)
                         }
@@ -2282,186 +2186,5 @@ fun ZoomableBox(
             },
         content = content
     )
-}
-
-@Composable
-fun AlbumSelectionPopup(
-    availableAlbums: List<Album>,
-    searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
-    onAlbumSelected: (Album) -> Unit,
-    onDismiss: () -> Unit,
-    isAdding: Boolean
-) {
-    val filteredAlbums = remember(availableAlbums, searchQuery) {
-        if (searchQuery.isBlank()) availableAlbums
-        else availableAlbums.filter { it.albumName.contains(searchQuery, ignoreCase = true) }
-    }
-
-    var isVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { isVisible = true }
-
-    // Déclenchement automatique de la fermeture à la fin de l'ajout réussi
-    var wasAdding by remember { mutableStateOf(false) }
-    LaunchedEffect(isAdding) {
-        if (isAdding) wasAdding = true
-        if (!isAdding && wasAdding) {
-            isVisible = false
-        }
-    }
-
-    // On observe l'état isVisible pour fermer réellement le dialogue après l'anim
-    if (!isVisible) {
-        LaunchedEffect(Unit) {
-            delay(250) // Durée de l'animation de sortie
-            onDismiss()
-        }
-    }
-
-    Dialog(
-        onDismissRequest = { isVisible = false },
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        androidx.compose.animation.AnimatedVisibility(
-            visible = isVisible,
-            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.8f),
-            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.8f)
-        ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth(0.9f)
-                    .fillMaxHeight(0.7f),
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = stringResource(R.string.swipe_add_to_album),
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = onSearchQueryChange,
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text(stringResource(R.string.swipe_add_to_album_placeholder), fontSize = 14.sp) },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
-                        trailingIcon = {
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { onSearchQueryChange("") }) {
-                                    Icon(Icons.Default.Clear, contentDescription = stringResource(R.string.common_cancel), modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent
-                        )
-                    )
-
-                    Spacer(Modifier.height(16.dp))
-
-                    if (isAdding) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(filteredAlbums, key = { it.id }) { album ->
-                                AlbumSelectionItem(
-                                    album = album, 
-                                    onClick = { onAlbumSelected(album) },
-                                    modifier = Modifier.animateItem()
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    TextButton(
-                        onClick = { isVisible = false },
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Text(stringResource(R.string.common_cancel))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun AlbumSelectionItem(
-    album: Album,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val baseUrl = SessionManager.getBaseUrl()?.removeSuffix("/")
-    val apiKey = SessionManager.getApiKey() ?: ""
-
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        modifier = modifier
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val thumbnailRequest = remember(album.albumThumbnailAssetId, baseUrl, apiKey) {
-                ImageRequest.Builder(context)
-                    .data(
-                        if (album.albumThumbnailAssetId != null)
-                            "$baseUrl/api/assets/${album.albumThumbnailAssetId}/thumbnail?format=WEBP"
-                        else R.drawable.ic_launcher_icon_foreground // Placeholder if no thumbnail
-                    )
-                    .addHeader("x-api-key", apiKey)
-                    .crossfade(true)
-                    .build()
-            }
-
-            AsyncImage(
-                model = thumbnailRequest,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(RoundedCornerShape(8.dp))
-            )
-
-            Spacer(Modifier.width(12.dp))
-
-            Column {
-                Text(
-                    text = album.albumName,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                )
-                Text(
-                    text = stringResource(R.string.swipe_media_count, album.assetCount),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
 }
 

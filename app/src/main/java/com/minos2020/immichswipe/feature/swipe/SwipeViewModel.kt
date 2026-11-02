@@ -67,18 +67,20 @@ class SwipeViewModel(
         observeIncludeArchived()
         observeDefaultCardDisplayMode()
         observeSortSettings()
+        loadAvailableAlbums()
     }
 
     private fun observeSortSettings() {
         viewModelScope.launch {
             sessionRepository.swipeSortOrder.collect { order ->
-                _uiState.value = _uiState.value.copy(sortOrder = order)
+                val chronological = if (album.id == Album.VIRTUAL_ORPHANS_ID && order !in listOf(SwipeSortOrder.DATE_ASC, SwipeSortOrder.DATE_DESC)) SwipeSortOrder.DATE_DESC else order
+                _uiState.value = _uiState.value.copy(sortOrder = chronological)
                 if (masterWorkPile.isNotEmpty()) refreshSortedWorkPile(jumpToFirstUnprocessed = true)
             }
         }
         viewModelScope.launch {
             sessionRepository.swipeSortPriority.collect { priority ->
-                _uiState.value = _uiState.value.copy(sortPriority = priority)
+                _uiState.value = _uiState.value.copy(sortPriority = if (album.id == Album.VIRTUAL_ORPHANS_ID) SwipeSortPriority.NONE else priority)
                 if (masterWorkPile.isNotEmpty()) refreshSortedWorkPile(jumpToFirstUnprocessed = true)
             }
         }
@@ -95,7 +97,9 @@ class SwipeViewModel(
     private fun observeIncludeArchived() {
         viewModelScope.launch {
             sessionRepository.includeArchived.collect { include ->
+                val changed = _uiState.value.includeArchived != include
                 _uiState.value = _uiState.value.copy(includeArchived = include)
+                if (changed && lastLoadedUserId != null) loadAssetsAndDecisions()
             }
         }
     }
@@ -308,6 +312,9 @@ class SwipeViewModel(
                                 isAssetsLoadingFlow.value = false
                             }
                         }
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        _uiState.update { it.copy(error = e.message ?: "Could not load photos", isLoading = false) }
                     } finally {
                         isAssetsLoadingFlow.value = false
                     }
@@ -354,14 +361,23 @@ class SwipeViewModel(
                     val sizeMap = mutableMapOf<String, Long>()
                     localDecisions.forEach { entity ->
                         if (!entity.isSynced) {
-                            try { allLocalDecisions[entity.assetId] = SwipeDecision.valueOf(entity.decision) } catch(_: Exception) {}
+                            try {
+                                val decision = SwipeDecision.valueOf(entity.decision)
+                                val ignoreOldReview = album.id == Album.VIRTUAL_ORPHANS_ID &&
+                                    (decision == SwipeDecision.KEEP || (decision == SwipeDecision.SKIP && entity.assetId !in currentState.history))
+                                if (!ignoreOldReview) allLocalDecisions[entity.assetId] = decision
+                            } catch(_: Exception) {}
                         }
                         entity.fileSize?.let { sizeMap[entity.assetId] = it }
                     }
 
                     // 3. Filtrage de la pile de travail
                     val isVirtualSkipped = album.id == Album.VIRTUAL_SKIPPED_ID
-                    val syncedIds = if (isVirtualSkipped) emptySet() else initialSyncedDecisions.keys
+                    val syncedIds = when {
+                        isVirtualSkipped -> emptySet()
+                        album.id == Album.VIRTUAL_ORPHANS_ID -> initialSyncedDecisions.filterValues { it != SwipeDecision.KEEP && it != SwipeDecision.SKIP }.keys
+                        else -> initialSyncedDecisions.keys
+                    }
                     val workPile = allAssetsFound.filter { !syncedIds.contains(it.id) }
                     val workPileIds = workPile.map { it.id }.toSet()
 
@@ -392,7 +408,7 @@ class SwipeViewModel(
                     // GESTION DU CHARGEMENT :
                     // On garde le cercle de chargement tant que le réseau n'a pas fini (isFetching)
                     // ET qu'on est en tri non chronologique (complexité de tri).
-                    val shouldKeepLoading = !isChronologicalSort && !hasStartedSwiping && isFetching
+                    val shouldKeepLoading = isFetching && (workPile.isEmpty() || (!isChronologicalSort && !hasStartedSwiping))
 
                     refreshSortedWorkPile(
                         jumpToFirstUnprocessed = currentState.assets.isEmpty(),
@@ -527,12 +543,16 @@ class SwipeViewModel(
         }
 
         // 3. Calcul de l'index de destination
-        val firstUnprocessed = sorted.indexOfFirst { !decisions.containsKey(it.id) }
+        val firstUnprocessed = sorted.indexOfFirst { it.id !in decisions && it.id !in currentState.albumAssignments }
+        val previousId = currentState.currentAsset?.id
+        val sameAssetIndex = sorted.indexOfFirst { it.id == previousId && !currentState.isProcessed(it.id) }
         val newIndex = if (jumpToFirstUnprocessed || currentState.assets.isEmpty()) {
             if (firstUnprocessed != -1) firstUnprocessed else sorted.size
         } else {
             // On reste sur l'index actuel (celui du swipe ou du clic timeline)
-            currentState.currentIndex.coerceAtMost(sorted.size)
+            if (album.id == Album.VIRTUAL_ORPHANS_ID) {
+                if (sameAssetIndex >= 0) sameAssetIndex else if (firstUnprocessed >= 0) firstUnprocessed else sorted.size
+            } else currentState.currentIndex.coerceAtMost(sorted.size)
         }
 
         val newIsLoading = overrideIsLoading ?: currentState.isLoading
@@ -580,6 +600,7 @@ class SwipeViewModel(
     }
 
     fun onSwipe(decision: SwipeDecision) {
+        if (_uiState.value.isAddingToAlbum) return
         hasStartedSwiping = true
         val currentState = _uiState.value
         val currentAsset = currentState.currentAsset ?: return
@@ -614,7 +635,7 @@ class SwipeViewModel(
 
         // 1. Chercher d'abord la prochaine photo NON TRAITÉE après l'actuelle
         for (i in (currentState.currentIndex + 1) until assets.size) {
-            if (!newDecisions.containsKey(assets[i].id)) {
+            if (!newDecisions.containsKey(assets[i].id) && assets[i].id !in currentState.albumAssignments) {
                 nextIndex = i
                 break
             }
@@ -623,7 +644,7 @@ class SwipeViewModel(
         // 2. Si rien trouvé après, chercher une photo NON TRAITÉE depuis le début (boucle)
         if (nextIndex == -1) {
             for (i in 0 until currentState.currentIndex) {
-                if (!newDecisions.containsKey(assets[i].id)) {
+                if (!newDecisions.containsKey(assets[i].id) && assets[i].id !in currentState.albumAssignments) {
                     nextIndex = i
                     break
                 }
@@ -631,6 +652,7 @@ class SwipeViewModel(
         }
 
         // 3. Si TOUT est traité (Mode Revue), on passe simplement au suivant dans l'ordre de la liste
+        if (nextIndex == -1 && album.id == Album.VIRTUAL_ORPHANS_ID) nextIndex = assets.size
         if (nextIndex == -1) {
             if (currentState.currentIndex + 1 < assets.size) {
                 nextIndex = currentState.currentIndex + 1
@@ -847,9 +869,15 @@ class SwipeViewModel(
     }
 
     fun undo() {
+        if (_uiState.value.isAddingToAlbum) return
         hasStartedSwiping = true
         val currentState = _uiState.value
         val lastAssetIdFromHistory = currentState.history.lastOrNull()
+        val albumUndo = currentState.albumUndoHistory.lastOrNull { it.key == lastAssetIdFromHistory }
+        if (albumUndo != null) {
+            undoAlbumAssignment(albumUndo)
+            return
+        }
 
         viewModelScope.launch {
             try {
@@ -914,8 +942,9 @@ class SwipeViewModel(
      * Permet de sauter directement à un asset précis (via la timeline).
      */
     fun onMoveToAsset(index: Int) {
+        if (_uiState.value.isAddingToAlbum) return
         //hasStartedSwiping = true // NE COMPTE PLUS COMME DÉBUT DE SESSION
-        if (index in 0 until _uiState.value.assets.size) {
+        if (index in 0 until _uiState.value.assets.size && _uiState.value.assets[index].id !in _uiState.value.albumAssignments) {
             _uiState.value = _uiState.value.copy(currentIndex = index)
             loadAssetDetail(_uiState.value.assets[index].id, index)
         }
@@ -962,6 +991,7 @@ class SwipeViewModel(
      * Applique les décisions (Suppression sur Immich) et marque les assets comme traités localement.
      */
     fun applyChanges() {
+        if (_uiState.value.isAddingToAlbum || _uiState.value.isSyncing) return
         val currentState = _uiState.value
         val decisions = currentState.decisions
         val assetSizes = currentState.assetSizes
@@ -1068,14 +1098,15 @@ class SwipeViewModel(
 
         // 1. Chercher le prochain non-traité après
         for (i in (current + 1) until assets.size) {
-            if (!decisions.containsKey(assets[i].id)) return i
+            if (!state.isProcessed(assets[i].id)) return i
         }
         
         // 2. Chercher le prochain non-traité avant
         for (i in 0 until current) {
-            if (!decisions.containsKey(assets[i].id)) return i
+            if (!state.isProcessed(assets[i].id)) return i
         }
 
+        if (album.id == Album.VIRTUAL_ORPHANS_ID) return -1
         // 3. Si tout est traité, on affiche simplement la carte suivante dans la liste
         if (current + 1 < assets.size) {
             return current + 1
@@ -1088,53 +1119,178 @@ class SwipeViewModel(
         _uiState.update { it.copy(albumSearchQuery = query) }
     }
 
-    fun toggleAlbumSelection(show: Boolean, externalAlbums: List<Album>? = null) {
-        if (show) {
-            if (externalAlbums != null) {
-                val sortedAlbums = externalAlbums.sortedByDescending { it.updatedAt ?: "" }
-                _uiState.update { it.copy(availableAlbums = sortedAlbums, showAlbumSelection = true, albumSearchQuery = "") }
-            } else if (_uiState.value.availableAlbums.isEmpty()) {
-                loadAvailableAlbums()
-                _uiState.update { it.copy(showAlbumSelection = true, albumSearchQuery = "") }
-            } else {
-                _uiState.update { it.copy(showAlbumSelection = true, albumSearchQuery = "") }
-            }
-        } else {
-            _uiState.update { it.copy(showAlbumSelection = false) }
+    fun setShowCreateAlbum(show: Boolean) {
+        if (!_uiState.value.isAddingToAlbum) {
+            _uiState.update { it.copy(showCreateAlbum = show, albumActionError = null) }
         }
     }
 
-    private fun loadAvailableAlbums() {
+    fun loadAvailableAlbums() {
+        if (_uiState.value.isLoadingAlbums) return
+        _uiState.update { it.copy(isLoadingAlbums = true, albumActionError = null) }
         viewModelScope.launch {
+            val config = sessionRepository.sessionConfig.first()
             try {
-                val albums = albumRepository.refreshAlbums(includeArchived = _uiState.value.includeArchived)
-                // Tri par updatedAt desc (plus récents en premier)
-                val sortedAlbums = albums.sortedByDescending { it.updatedAt ?: "" }
-                _uiState.update { it.copy(availableAlbums = sortedAlbums) }
+                val albums = albumRepository.getAlbums().sortedBy { it.albumName.lowercase() }
+                val order = config?.let { sessionRepository.getAlbumOrder(it) }.orEmpty()
+                val positions = order.withIndex().associate { it.value to it.index }
+                if (config != sessionRepository.sessionConfig.first()) return@launch
+                _uiState.update { it.copy(availableAlbums = albums.sortedBy { a -> positions[a.id] ?: Int.MAX_VALUE }, isLoadingAlbums = false) }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                AppLogger.e("Swipe", "Erreur lors du chargement des albums", e)
+                AppLogger.e("Swipe", "Could not load albums", e)
+                if (config == sessionRepository.sessionConfig.first()) {
+                    _uiState.update { it.copy(isLoadingAlbums = false, albumActionError = AlbumActionError.LOAD) }
+                }
             }
         }
     }
 
-    fun addCurrentAssetToAlbum(targetAlbum: Album) {
-        val asset = _uiState.value.currentAsset ?: return
-        viewModelScope.launch {
-            _uiState.update { it.copy(isAddingToAlbum = true) }
-            try {
-                val config = sessionRepository.sessionConfig.first()
-                albumRepository.addAssetsToAlbum(targetAlbum.id, listOf(asset.id), config?.userId)
-                AppLogger.i("Swipe", "Asset ajouté à l'album ${targetAlbum.albumName}")
-                
-                // On rafraîchit la liste pour mettre à jour updatedAt et les comptes
-                loadAvailableAlbums()
+    fun toggleSelection(assetId: String) {
+        if (_uiState.value.isAddingToAlbum) return
+        _uiState.update { state ->
+            state.copy(selectedAssetIds = if (assetId in state.selectedAssetIds) state.selectedAssetIds - assetId else state.selectedAssetIds + assetId)
+        }
+    }
 
-                _uiState.update { it.copy(isAddingToAlbum = false) }
+    fun selectAssets(ids: Set<String>) {
+        if (_uiState.value.isAddingToAlbum) return
+        _uiState.update { state ->
+            state.copy(selectedAssetIds = if (state.selectedAssetIds.containsAll(ids)) state.selectedAssetIds - ids else state.selectedAssetIds + ids)
+        }
+    }
+
+    fun clearSelection() {
+        if (!_uiState.value.isAddingToAlbum) _uiState.update { it.copy(selectedAssetIds = emptySet()) }
+    }
+
+    fun reorderAlbum(fromId: String, toId: String) {
+        if (fromId == toId || _uiState.value.isAddingToAlbum) return
+        val albums = _uiState.value.availableAlbums.toMutableList()
+        val from = albums.indexOfFirst { it.id == fromId }
+        val to = albums.indexOfFirst { it.id == toId }
+        if (from < 0 || to < 0) return
+        albums.add(to, albums.removeAt(from))
+        _uiState.update { it.copy(availableAlbums = albums) }
+    }
+
+    fun saveAlbumOrder() {
+        val ids = _uiState.value.availableAlbums.map { it.id }
+        viewModelScope.launch {
+            val config = sessionRepository.sessionConfig.first() ?: return@launch
+            try {
+                sessionRepository.saveAlbumOrder(config, ids)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                AppLogger.e("Swipe", "Erreur lors de l'ajout à l'album", e)
-                _uiState.update { it.copy(isAddingToAlbum = false, error = "Erreur lors de l'ajout à l'album") }
+                if (config == sessionRepository.sessionConfig.first()) _uiState.update { it.copy(albumActionError = AlbumActionError.ORDER) }
+            }
+        }
+    }
+
+    fun addCurrentAssetToAlbum(targetAlbum: Album) = assignAssets(targetAlbum = targetAlbum)
+
+    fun addSelectedAssetsToAlbum(targetAlbum: Album) = assignAssets(targetAlbum = targetAlbum, selectedOnly = true)
+
+    fun createAlbumAndAddCurrentAsset(name: String) {
+        if (name.isBlank()) return
+        assignAssets(newAlbumName = name.trim(), selectedOnly = _uiState.value.selectedAssetIds.isNotEmpty())
+    }
+
+    private fun assignAssets(targetAlbum: Album? = null, newAlbumName: String? = null, selectedOnly: Boolean = false) {
+        val state = _uiState.value
+        if (state.isAddingToAlbum || state.isSyncing) return
+        val ids = (if (selectedOnly) state.selectedAssetIds.toList() else listOfNotNull(state.currentAsset?.id))
+            .filter { it !in state.albumAssignments }.distinct()
+        if (ids.isEmpty()) return
+        _uiState.update { it.copy(isAddingToAlbum = true, albumActionError = null, lastAddedAlbumName = null) }
+        viewModelScope.launch {
+            val config = sessionRepository.sessionConfig.first()
+            var destination = targetAlbum
+            try {
+                checkNotNull(config) { "No active session" }
+                if (destination == null) {
+                    destination = albumRepository.createAlbum(checkNotNull(newAlbumName))
+                    if (config != sessionRepository.sessionConfig.first()) return@launch
+                    val created = destination
+                    _uiState.update { it.copy(availableAlbums = it.availableAlbums + created) }
+                }
+                val selected = destination
+                val result = albumRepository.assignAssetsToAlbum(selected.id, ids, config.userId)
+                if (config != sessionRepository.sessionConfig.first()) return@launch
+                hasStartedSwiping = true
+                val key = "album:" + java.util.UUID.randomUUID()
+                _uiState.update { current ->
+                    val assignments = current.albumAssignments + result.completedIds.associateWith { setOf(selected.id) }
+                    val next = ((current.currentIndex until current.assets.size) + (0 until current.currentIndex))
+                        .firstOrNull { current.assets[it].id !in assignments && current.assets[it].id !in current.decisions }
+                        ?: current.assets.size
+                    current.copy(
+                        isAddingToAlbum = false, showCreateAlbum = false,
+                        albumAssignments = assignments,
+                        currentIndex = next,
+                        selectedAssetIds = current.selectedAssetIds - result.completedIds,
+                        history = if (result.changedIds.isEmpty()) current.history else current.history + key,
+                        albumUndoHistory = if (result.changedIds.isEmpty()) current.albumUndoHistory else
+                            current.albumUndoHistory + AlbumUndoEntry(key, selected.id, result.changedIds, current.assets.filter { it.id in result.changedIds }),
+                        lastAddedAlbumName = selected.albumName.takeIf { result.completedIds.isNotEmpty() },
+                        availableAlbums = current.availableAlbums.map { a -> if (a.id == selected.id)
+                            a.copy(assetCount = a.assetCount + result.changedIds.size,
+                                albumThumbnailAssetId = a.albumThumbnailAssetId ?: result.completedIds.firstOrNull()) else a },
+                        albumActionError = AlbumActionError.ADD.takeIf { result.failedIds.isNotEmpty() }
+                    )
+                }
+                _uiState.value.currentAsset?.let { loadAssetDetail(it.id, _uiState.value.currentIndex) }
+                updateSummaryStats()
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                AppLogger.e("Swipe", "Could not add photos to album", e)
+                if (config == sessionRepository.sessionConfig.first()) {
+                    _uiState.update { it.copy(isAddingToAlbum = false,
+                        showCreateAlbum = if (destination != null) false else it.showCreateAlbum,
+                        albumActionError = if (destination == null) AlbumActionError.CREATE else AlbumActionError.ADD) }
+                }
+            }
+        }
+    }
+
+    private fun undoAlbumAssignment(entry: AlbumUndoEntry) {
+        _uiState.update { it.copy(isAddingToAlbum = true, albumActionError = null, lastAddedAlbumName = null) }
+        viewModelScope.launch {
+            val config = sessionRepository.sessionConfig.first() ?: return@launch
+            try {
+                val result = albumRepository.removeAssetsFromAlbum(entry.albumId, entry.assetIds.toList(), config.userId)
+                val memberships = result.completedIds.associateWith { albumRepository.getAlbumIdsForAsset(it) }
+                if (config != sessionRepository.sessionConfig.first()) return@launch
+                val restoredAssets = entry.assets.filter { it.id in result.completedIds }
+                val knownIds = masterWorkPile.map { it.id }.toSet()
+                masterWorkPile = masterWorkPile + restoredAssets.filter { it.id !in knownIds }
+                _uiState.update { state ->
+                    val restored = (state.assets + restoredAssets).distinctBy { it.id }.let { list ->
+                        if (state.sortOrder == SwipeSortOrder.DATE_ASC) list.sortedBy { it.fileCreatedAt } else list.sortedByDescending { it.fileCreatedAt }
+                    }
+                    val remaining = entry.assetIds - result.completedIds
+                    val assignments = state.albumAssignments.toMutableMap()
+                    result.completedIds.forEach { id ->
+                        val albums = memberships[id].orEmpty()
+                        if (albums.isEmpty()) assignments.remove(id) else assignments[id] = albums
+                    }
+                    state.copy(
+                        isAddingToAlbum = false, albumAssignments = assignments, assets = restored,
+                        currentIndex = restored.indexOfFirst { it.id in result.completedIds && it.id !in assignments }.takeIf { it >= 0 } ?: state.currentIndex,
+                        history = if (remaining.isEmpty()) state.history - entry.key else state.history,
+                        albumUndoHistory = state.albumUndoHistory.mapNotNull { e -> if (e.key != entry.key) e else
+                            if (remaining.isEmpty()) null else e.copy(assetIds = remaining) },
+                        availableAlbums = state.availableAlbums.map { a -> if (a.id == entry.albumId)
+                            a.copy(assetCount = (a.assetCount - result.completedIds.size).coerceAtLeast(0),
+                                albumThumbnailAssetId = a.albumThumbnailAssetId.takeUnless { it in result.completedIds }) else a },
+                        albumActionError = AlbumActionError.UNDO.takeIf { remaining.isNotEmpty() }
+                    )
+                }
+                allAssetsFoundFlow.value = (allAssetsFoundFlow.value + restoredAssets).distinctBy { it.id }
+                _uiState.value.currentAsset?.let { loadAssetDetail(it.id, _uiState.value.currentIndex) }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (config == sessionRepository.sessionConfig.first()) _uiState.update { it.copy(isAddingToAlbum = false, albumActionError = AlbumActionError.UNDO) }
             }
         }
     }
