@@ -2,6 +2,14 @@
 
 基于 [Immich Swipe](https://github.com/Minos2020/immich-swipe-android) 改造的 Android 应用，专注把 Immich 中未加入相册的照片和视频快速归类，保留原项目的卡片预览和 Material 风格。
 
+[下载正式版 APK · 3.0.3](https://github.com/sea-with-sakura/immich-swipe-android/releases/download/albums-v3.0.3/immich-albums-3.0.3.apk) · [版本说明](https://github.com/sea-with-sakura/immich-swipe-android/releases/tag/albums-v3.0.3)
+
+| 按日期浏览未归类照片 | 点击相册，连续整理与撤回 |
+| --- | --- |
+| <img src="docs/images/album-home.png" alt="首页：按日期分组的未归类照片和紧凑相册网格" width="280"> | <img src="docs/images/album-swipe.png" alt="Swipe 页面：照片预览、相册封面、撤回和下一张" width="280"> |
+
+实际应用截图，照片和相册使用演示数据。
+
 - **从未归类照片开始**：首页按拍摄日期排列，支持最新／最早排序和日期跳转。
 - **快捷加入相册**：单张、多选或整日批量归类，也能直接新建相册并加入。
 - **连续整理**：Swipe 页常驻相册按钮，添加成功后自动显示下一张，已归类照片移出待整理队列。
