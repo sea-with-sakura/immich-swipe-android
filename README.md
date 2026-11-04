@@ -2,7 +2,7 @@
 
 基于 [Immich Swipe](https://github.com/Minos2020/immich-swipe-android) 改造的 Android 应用，专注把 Immich 中未加入相册的照片和视频快速归类，保留原项目的卡片预览和 Material 风格。
 
-[下载正式版 APK · 3.0.3](https://github.com/sea-with-sakura/immich-swipe-android/releases/download/albums-v3.0.3/immich-albums-3.0.3.apk) · [版本说明](https://github.com/sea-with-sakura/immich-swipe-android/releases/tag/albums-v3.0.3)
+[下载正式版 APK · 3.0.4](https://github.com/sea-with-sakura/immich-swipe-android/releases/download/albums-v3.0.4/immich-albums-3.0.4.apk) · [版本说明](https://github.com/sea-with-sakura/immich-swipe-android/releases/tag/albums-v3.0.4)
 
 | 按日期浏览未归类照片 | 点击相册，连续整理与撤回 |
 | --- | --- |

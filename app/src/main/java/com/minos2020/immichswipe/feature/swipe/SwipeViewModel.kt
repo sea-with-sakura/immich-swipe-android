@@ -1229,6 +1229,8 @@ class SwipeViewModel(
                         albumAssignments = assignments,
                         currentIndex = next,
                         selectedAssetIds = current.selectedAssetIds - result.completedIds,
+                        completedBatchAssignments = current.completedBatchAssignments +
+                            if (selectedOnly && result.completedIds.isNotEmpty() && result.failedIds.isEmpty()) 1 else 0,
                         history = if (result.changedIds.isEmpty()) current.history else current.history + key,
                         albumUndoHistory = if (result.changedIds.isEmpty()) current.albumUndoHistory else
                             current.albumUndoHistory + AlbumUndoEntry(key, selected.id, result.changedIds, current.assets.filter { it.id in result.changedIds }),

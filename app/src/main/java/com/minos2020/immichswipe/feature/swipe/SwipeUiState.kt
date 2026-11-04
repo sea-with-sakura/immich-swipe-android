@@ -80,6 +80,7 @@ data class SwipeUiState(
     val lastAddedAlbumName: String? = null,
     val albumUndoHistory: List<AlbumUndoEntry> = emptyList(),
     val selectedAssetIds: Set<String> = emptySet(),
+    val completedBatchAssignments: Int = 0,
 
     // Statistiques pré-calculées pour le Review Screen (Performance)
     val summaryDeletedAssets: List<Asset> = emptyList(),

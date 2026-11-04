@@ -68,7 +68,10 @@ fun AlbumHomeScreen(
     val datePicker = rememberDatePickerState()
     val isSettings = home.currentTab == HomeTab.SETTINGS
     LaunchedEffect(sessionKey) { homeViewModel.loadUser() }
-    LaunchedEffect(state.sortOrder) { gridState.scrollToItem(0) }
+    LaunchedEffect(state.sortOrder, state.completedBatchAssignments) {
+        // A completed batch must override the grid's retained first-visible photo.
+        gridState.requestScrollToItem(0)
+    }
     BackHandler(enabled = home.currentTab != HomeTab.HOME || state.selectedAssetIds.isNotEmpty()) {
         if (state.selectedAssetIds.isNotEmpty()) organizer.clearSelection() else homeViewModel.goBack()
     }
