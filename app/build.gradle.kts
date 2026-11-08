@@ -28,8 +28,8 @@ android {
         applicationId = "com.minos2020.immichswipe.albums"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "3.0.4"
+        versionCode = 13
+        versionName = "3.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -53,7 +53,10 @@ fun AlbumOrganizingPanel(
     onSkip: () -> Unit,
     onReorder: (String, String) -> Unit,
     onOrderSaved: () -> Unit,
-    selectionMode: Boolean = false
+    selectionMode: Boolean = false,
+    titleOverride: String? = null,
+    hintOverride: String? = null,
+    uploadProgress: Float? = null
 ) {
     var showSearch by rememberSaveable { mutableStateOf(false) }
     val busy = uiState.isAddingToAlbum || uiState.isSyncing
@@ -104,7 +107,7 @@ fun AlbumOrganizingPanel(
                 Icon(Icons.Default.PhotoAlbum, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(if (selectionMode && uiState.selectedAssetIds.isNotEmpty()) stringResource(R.string.organize_selected, uiState.selectedAssetIds.size)
-                    else stringResource(R.string.swipe_add_to_album), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    else titleOverride ?: stringResource(R.string.swipe_add_to_album), style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
                 IconButton(onClick = { showSearch = !showSearch; if (!showSearch) onSearchQueryChange("") }) {
                     Icon(if (showSearch) Icons.Default.Close else Icons.Default.Search, stringResource(R.string.swipe_add_to_album_placeholder))
                 }
@@ -186,7 +189,8 @@ fun AlbumOrganizingPanel(
             }
             Box(Modifier.fillMaxWidth().heightIn(min = 20.dp), contentAlignment = Alignment.CenterStart) {
                 when {
-                    busy -> LinearProgressIndicator(Modifier.fillMaxWidth())
+                    busy -> if (uploadProgress != null) LinearProgressIndicator(progress = { uploadProgress }, modifier = Modifier.fillMaxWidth())
+                        else LinearProgressIndicator(Modifier.fillMaxWidth())
                     uiState.albumActionError != null -> Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(albumErrorMessage(uiState.albumActionError)), color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
@@ -194,7 +198,7 @@ fun AlbumOrganizingPanel(
                     }
                     uiState.lastAddedAlbumName != null -> Text(stringResource(R.string.organize_added_to, uiState.lastAddedAlbumName),
                         color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    else -> Text(stringResource(if (selectionMode) R.string.organize_grid_hint else R.string.organize_drag_hint),
+                    else -> Text(hintOverride ?: stringResource(if (selectionMode) R.string.organize_grid_hint else R.string.organize_drag_hint),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

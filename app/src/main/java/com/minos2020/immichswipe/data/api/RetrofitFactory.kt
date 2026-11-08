@@ -16,7 +16,7 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 
 object RetrofitFactory {
-    fun create(config: SessionConfig): ImmichApi {
+    fun create(config: SessionConfig, uploadTimeouts: Boolean = false): ImmichApi {
         // Intercepteur pour logger les requêtes et réponses HTTP
         val logging = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY else HttpLoggingInterceptor.Level.NONE
@@ -87,6 +87,12 @@ object RetrofitFactory {
             .addInterceptor(apiKeyInterceptor)
             .addInterceptor(connectivityInterceptor)
             .addInterceptor(logging)
+            .apply {
+                if (uploadTimeouts) {
+                    writeTimeout(10, java.util.concurrent.TimeUnit.MINUTES)
+                    readTimeout(2, java.util.concurrent.TimeUnit.MINUTES)
+                }
+            }
             .build()
 
         // Configure Retrofit avec l'URL de base, le client HTTP et le convertisseur JSON (Gson).

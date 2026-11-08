@@ -11,6 +11,15 @@ import retrofit2.http.POST
 import retrofit2.http.PUT
 
 interface ImmichApi {
+    @retrofit2.http.Multipart
+    @POST("api/assets")
+    suspend fun uploadLocalAsset(
+        @retrofit2.http.PartMap fields: Map<String, @JvmSuppressWildcards okhttp3.RequestBody>,
+        @retrofit2.http.Part assetData: okhttp3.MultipartBody.Part
+    ): LocalUploadResponse
+
+    @GET("api/assets/{id}")
+    suspend fun verifyLocalUpload(@Path("id") assetId: String): LocalUploadVerification
 
     @GET("api/users/me")
     suspend fun getCurrentUser(): User
@@ -60,6 +69,9 @@ interface ImmichApi {
     @HTTP(method = "DELETE", path = "api/albums/{id}/assets", hasBody = true)
     suspend fun removeAssetsFromAlbum(@Path("id") albumId: String, @Body request: AddAssetsToAlbumRequest): List<AlbumAssetResult>
 }
+
+data class LocalUploadResponse(val id: String, val status: String)
+data class LocalUploadVerification(val id: String, val checksum: String, val isTrashed: Boolean = false, val isOffline: Boolean = false, val ownerId: String = "")
 
 data class CreateAlbumRequest(val albumName: String)
 

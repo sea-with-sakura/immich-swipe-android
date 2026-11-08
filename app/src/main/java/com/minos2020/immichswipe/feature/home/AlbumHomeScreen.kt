@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,12 +31,14 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.minos2020.immichswipe.R
 import com.minos2020.immichswipe.core.SessionManager
+import com.minos2020.immichswipe.core.SessionConfig
 import com.minos2020.immichswipe.core.SwipeSortOrder
 import com.minos2020.immichswipe.data.repository.*
 import com.minos2020.immichswipe.domain.model.Album
 import com.minos2020.immichswipe.domain.model.Asset
 import com.minos2020.immichswipe.feature.settings.*
 import com.minos2020.immichswipe.feature.swipe.*
+import com.minos2020.immichswipe.feature.local.*
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -60,6 +63,15 @@ fun AlbumHomeScreen(
         assetRepository, homeViewModel.getSessionRepository(), swipeDecisionRepository, albumRepository,
         Album(Album.VIRTUAL_ORPHANS_ID, unfiledName, null, 0, null)))
     val state by organizer.uiState.collectAsState()
+    val context = LocalContext.current
+    val localOrganizer: LocalOrganizerViewModel = viewModel(key = "local-$sessionKey", factory = LocalOrganizerViewModelFactory(
+        context, SessionConfig(checkNotNull(SessionManager.getBaseUrl()), checkNotNull(SessionManager.getApiKey()),
+            checkNotNull(SessionManager.getUserId())), albumRepository))
+    val localState by localOrganizer.uiState.collectAsState()
+    var localMode by rememberSaveable(sessionKey) { mutableStateOf(false) }
+    LaunchedEffect(localState.albumRefreshVersion) {
+        if (localState.albumRefreshVersion > 0) organizer.loadAvailableAlbums()
+    }
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
     val photos = state.unfiledAssets
@@ -72,25 +84,40 @@ fun AlbumHomeScreen(
         // A completed batch must override the grid's retained first-visible photo.
         gridState.requestScrollToItem(0)
     }
-    BackHandler(enabled = home.currentTab != HomeTab.HOME || state.selectedAssetIds.isNotEmpty()) {
-        if (state.selectedAssetIds.isNotEmpty()) organizer.clearSelection() else homeViewModel.goBack()
+    BackHandler(enabled = home.currentTab != HomeTab.HOME ||
+        (if (localMode) localState.busy || localState.selected.isNotEmpty() else state.selectedAssetIds.isNotEmpty())) {
+        when {
+            localMode && localState.busy -> if (localState.uploading) localOrganizer.cancelUpload()
+            localMode && localState.selected.isNotEmpty() -> localOrganizer.clearSelection()
+            !localMode && state.selectedAssetIds.isNotEmpty() -> organizer.clearSelection()
+            else -> homeViewModel.goBack()
+        }
     }
     Scaffold(modifier = modifier, topBar = {
         TopAppBar(title = { Text(if (isSettings) stringResource(R.string.settings_title) else stringResource(R.string.app_name),
-            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold) },
+            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
+            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
             navigationIcon = {
                 if (isSettings) IconButton(onClick = homeViewModel::goBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.nav_back))
                 }
             }, actions = {
                 if (!isSettings) {
-                    if (home.currentTab == HomeTab.HOME) IconButton(onClick = { showDatePicker = true }, enabled = photos.isNotEmpty()) {
+                    TextButton(onClick = { localMode = !localMode; showDatePicker = false },
+                        enabled = !localState.busy && !state.isAddingToAlbum && !state.isSyncing) {
+                        Icon(if (localMode) Icons.Default.Cloud else Icons.Default.PhoneAndroid,
+                            stringResource(if (localMode) R.string.cloud_switch_accessibility else R.string.local_switch_accessibility), Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(stringResource(if (localMode) R.string.cloud_switch else R.string.local_switch))
+                    }
+                    if (home.currentTab == HomeTab.HOME) IconButton(onClick = { showDatePicker = true },
+                        enabled = (if (localMode) localState.items.any { (it.key in localState.kept) == localState.showKept } && !localState.busy else photos.isNotEmpty())) {
                         Icon(Icons.Default.CalendarMonth, stringResource(R.string.organize_jump_date))
                     }
-                    if (home.currentTab == HomeTab.SWIPE && state.deletedCount > 0) TextButton(onClick = { organizer.toggleSummary(true) }) {
+                    if (!localMode && home.currentTab == HomeTab.SWIPE && state.deletedCount > 0) TextButton(onClick = { organizer.toggleSummary(true) }) {
                         Icon(Icons.Default.DeleteOutline, null, Modifier.size(20.dp)); Text("${state.deletedCount}")
                     }
-                    IconButton(onClick = { homeViewModel.toggleProfilePopup(true) }) {
+                    IconButton(onClick = { homeViewModel.toggleProfilePopup(true) }, enabled = !localState.busy) {
                         Icon(Icons.Default.AccountCircle, stringResource(R.string.profile_connected_label))
                     }
                 }
@@ -103,6 +130,7 @@ fun AlbumHomeScreen(
                     val selected = home.currentTab == tab
                     Box(Modifier.weight(1f).fillMaxHeight().selectable(selected = selected, role = Role.Tab, onClick = {
                         if (tab == HomeTab.SWIPE) organizer.clearSelection()
+                        if (tab == HomeTab.SWIPE) localOrganizer.clearSelection()
                         homeViewModel.onTabSelected(tab)
                     }), contentAlignment = Alignment.Center) {
                         Box(Modifier.size(width = 64.dp, height = 32.dp).clip(RoundedCornerShape(16.dp))
@@ -119,8 +147,10 @@ fun AlbumHomeScreen(
         }
     }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            when (home.currentTab) {
-                HomeTab.HOME -> Column(Modifier.fillMaxSize()) {
+            when {
+                localMode && !isSettings -> LocalOrganizerScreen(localOrganizer, state, organizer,
+                    home.currentTab == HomeTab.SWIPE, showDatePicker) { showDatePicker = false }
+                home.currentTab == HomeTab.HOME -> Column(Modifier.fillMaxSize()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(unfiledName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -175,15 +205,15 @@ fun AlbumHomeScreen(
                     if (state.showCreateAlbum) CreateAlbumDialog(state.isAddingToAlbum, state.albumActionError,
                         organizer::createAlbumAndAddCurrentAsset, { organizer.setShowCreateAlbum(false) })
                 }
-                HomeTab.SWIPE -> SwipeScreen(organizer)
-                HomeTab.SETTINGS -> {
+                home.currentTab == HomeTab.SWIPE -> SwipeScreen(organizer)
+                home.currentTab == HomeTab.SETTINGS -> {
                     val settings: SettingsViewModel = viewModel(key = "settings-$sessionKey", factory = SettingsViewModelFactory(homeViewModel.getSessionRepository(), swipeDecisionRepository))
                     OrganizerSettingsScreen(settings)
                 }
             }
         }
     }
-    if (showDatePicker) DatePickerDialog(onDismissRequest = { showDatePicker = false }, confirmButton = {
+    if (showDatePicker && !localMode) DatePickerDialog(onDismissRequest = { showDatePicker = false }, confirmButton = {
         TextButton(onClick = {
             datePicker.selectedDateMillis?.let { millis ->
                 val day = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate().toString()
