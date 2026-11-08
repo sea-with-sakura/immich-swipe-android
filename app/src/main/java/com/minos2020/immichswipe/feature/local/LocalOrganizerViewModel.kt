@@ -2,13 +2,13 @@ package com.minos2020.immichswipe.feature.local
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.minos2020.immichswipe.core.AppLogger
 import com.minos2020.immichswipe.data.repository.AlbumRepository
 import com.minos2020.immichswipe.data.repository.LocalMediaRepository
 import com.minos2020.immichswipe.data.repository.LocalTransferRepository
 import com.minos2020.immichswipe.domain.model.Album
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
+import com.minos2020.immichswipe.feature.local.transfer.*
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -18,12 +18,31 @@ import java.util.UUID
 class LocalOrganizerViewModel(
     private val media: LocalMediaRepository,
     private val transfer: LocalTransferRepository,
-    private val albums: AlbumRepository
+    private val albums: AlbumRepository,
+    private val queue: LocalTransferQueue
 ) : ViewModel() {
     private val mutable = MutableStateFlow(LocalUiState())
     val uiState = mutable.asStateFlow()
-    private var job: Job? = null
-    private val deletionProofs = mutableMapOf<String, LocalUploadReceipt>()
+    private var tasks = emptyList<LocalTransferTask>()
+    init {
+        queue.resume()
+        viewModelScope.launch {
+            queue.tasks.collect { rows ->
+                val albumChanged = rows.any { row -> !row.deleteOnly && row.state in setOf(TransferState.CLEANUP, TransferState.DONE) &&
+                    tasks.firstOrNull { it.key == row.key }?.state != row.state }
+                tasks = rows
+                val own = rows.filter { it.account == queue.account }
+                val hidden = rows.filter { it.state in TransferState.active || it.state == TransferState.DONE }.map { it.key }.toSet()
+                val done = rows.filter { it.state == TransferState.DONE }.map { it.key }.toSet()
+                mutable.update { state -> state.copy(queuedKeys = hidden,
+                    items = state.items.filterNot { it.key in done },
+                    backgroundCount = own.count { it.state in setOf(TransferState.QUEUED, TransferState.UPLOADING) },
+                    cleanupCount = own.count { it.state == TransferState.CLEANUP },
+                    backgroundFailed = own.count { it.state == TransferState.FAILED },
+                    albumRefreshVersion = state.albumRefreshVersion + if (albumChanged) 1 else 0) }
+            }
+        }
+    }
 
     fun refresh() {
         if (mutable.value.busy || mutable.value.loading) return
@@ -31,6 +50,7 @@ class LocalOrganizerViewModel(
         viewModelScope.launch {
             try {
                 val photos = media.load(); val kept = media.kept()
+                queue.prune(photos.map { it.key }.toSet())
                 mutable.update { state -> state.copy(items = photos, kept = kept, loading = false,
                     selected = state.selected.intersect(photos.map { it.key }.toSet())) }
             } catch (e: Exception) {
@@ -71,57 +91,65 @@ class LocalOrganizerViewModel(
             } catch (e: Exception) { if (e is CancellationException) throw e; mutable.update { it.copy(loading = false, message = LocalMessage.LOAD_FAILED) } }
         }
     }
-    fun delete(selectionMode: Boolean) {
+    fun delete(selectionMode: Boolean, background: Boolean = true) {
         val state = mutable.value; if (state.busy) return
         val items = state.targets(selectionMode); if (items.isEmpty()) return
-        mutable.update { it.copy(pendingDeletion = LocalDeletion(UUID.randomUUID().toString(), items, false), message = null) }
+        if (!background) {
+            mutable.update { it.copy(pendingDeletion = LocalDeletion(UUID.randomUUID().toString(), items, false), message = null) }
+            return
+        }
+        enqueue(items, "", true)
+    }
+    private fun enqueue(photos: List<LocalMedia>, albumId: String, deleteOnly: Boolean = false) {
+        mutable.update { it.copy(uploading = true, message = null) }
+        viewModelScope.launch {
+            try {
+                queue.enqueue(photos, albumId, deleteOnly)
+                mutable.update { it.copy(uploading = false, selected = it.selected - photos.map { photo -> photo.key }.toSet(),
+                    currentIndex = 0, refreshVersion = it.refreshVersion + 1) }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                mutable.update { it.copy(uploading = false, message = LocalMessage.TRANSFER_FAILED) }
+            }
+        }
     }
     fun upload(album: Album?, selectionMode: Boolean, newName: String? = null) {
         val state = mutable.value; if (state.busy) return
         val photos = state.targets(selectionMode); if (photos.isEmpty() || (album == null && newName.isNullOrBlank())) return
-        deletionProofs.clear()
-        mutable.update { it.copy(uploading = true, message = null, failedCount = 0, uploadIndex = 0, uploadTotal = photos.size, progress = 0f) }
-        job = viewModelScope.launch {
-            val verified = mutableListOf<LocalMedia>()
-            val failed = mutableSetOf<String>()
+        if (album != null) { enqueue(photos, album.id); return }
+        mutable.update { it.copy(uploading = true, message = null) }
+        viewModelScope.launch {
             try {
-                val target = album ?: albums.createAlbum(checkNotNull(newName))
-                if (album == null) mutable.update { it.copy(showCreateAlbum = false, albumRefreshVersion = it.albumRefreshVersion + 1) }
-                for ((index, photo) in photos.withIndex()) {
-                    mutable.update { it.copy(uploadIndex = index + 1, progress = 0f) }
-                    try {
-                        val receipt = transfer.uploadToAlbum(photo, target.id) { value -> mutable.update { it.copy(progress = value) } }
-                        transfer.verifyBeforeDeletion(photo, receipt)
-                        deletionProofs[photo.key] = receipt
-                        verified += photo
-                    } catch (e: Exception) {
-                        if (e is CancellationException) throw e
-                        AppLogger.e("Local", "Upload or album verification failed; source retained", e)
-                        failed += photo.key
-                    }
-                }
+                val target = albums.createAlbum(checkNotNull(newName))
+                queue.enqueue(photos, target.id)
                 mutable.update { it.copy(uploading = false, showCreateAlbum = false,
-                    failedCount = failed.size, message = LocalMessage.TRANSFER_FAILED.takeIf { failed.isNotEmpty() },
-                    pendingDeletion = if (verified.isEmpty()) null else LocalDeletion(UUID.randomUUID().toString(), verified, true),
-                    albumRefreshVersion = it.albumRefreshVersion + 1) }
+                    selected = it.selected - photos.map { photo -> photo.key }.toSet(), currentIndex = 0,
+                    refreshVersion = it.refreshVersion + 1, albumRefreshVersion = it.albumRefreshVersion + 1) }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                mutable.update { it.copy(uploading = false, message = LocalMessage.TRANSFER_FAILED, failedCount = photos.size) }
+                mutable.update { it.copy(uploading = false, message = LocalMessage.TRANSFER_FAILED) }
             }
         }
     }
-    fun cancelUpload() {
-        job?.cancel()
-        deletionProofs.clear()
-        mutable.update { it.copy(uploading = false, pendingDeletion = null, message = LocalMessage.CANCELLED, albumRefreshVersion = it.albumRefreshVersion + 1) }
+    fun cancelUpload() { viewModelScope.launch { queue.cancel() } }
+    fun retryBackground() { viewModelScope.launch { queue.retry() } }
+    fun resumeBackground() { queue.resume() }
+    fun cleanup() {
+        if (mutable.value.busy) return
+        val photos = tasks.filter { it.account == queue.account && it.state == TransferState.CLEANUP }.map { it.photo() }
+        if (photos.isNotEmpty()) mutable.update { it.copy(pendingDeletion = LocalDeletion(UUID.randomUUID().toString(), photos, true)) }
     }
     fun cancelDeletion() { deletionFinished(emptySet(), true) }
     suspend fun validateDeletionChunk(items: List<LocalMedia>): List<LocalMedia> {
         val request = mutable.value.pendingDeletion ?: return emptyList()
         val validated = items.filter { photo ->
             try {
-                if (request.afterUpload) transfer.verifyBeforeDeletion(photo, checkNotNull(deletionProofs[photo.key]))
-                else check(media.unchanged(photo))
+                if (request.afterUpload) {
+                    val task = tasks.firstOrNull { it.key == photo.key && it.account == queue.account && it.state == TransferState.CLEANUP }
+                    checkNotNull(task)
+                    if (task.deleteOnly) check(media.unchanged(photo))
+                    else transfer.verifyBeforeDeletion(photo, checkNotNull(media.receipt(queue.account, photo)))
+                } else check(media.unchanged(photo))
                 true
             } catch (e: Exception) { if (e is CancellationException) throw e; false }
         }
@@ -129,7 +157,7 @@ class LocalOrganizerViewModel(
     }
     fun deletionFinished(deletedKeys: Set<String>, cancelled: Boolean) {
         val request = mutable.value.pendingDeletion ?: return
-        request.items.forEach { deletionProofs.remove(it.key) }
+        if (request.afterUpload) viewModelScope.launch { queue.completed(deletedKeys) }
         mutable.update { state -> state.copy(items = state.items.filterNot { it.key in deletedKeys },
             selected = state.selected - deletedKeys, pendingDeletion = null, currentIndex = 0,
             undoKept = state.undoKept.map { it - deletedKeys }.filter { it.isNotEmpty() },

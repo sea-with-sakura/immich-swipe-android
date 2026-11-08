@@ -31,6 +31,10 @@ data class LocalUiState(
     val loading: Boolean = false,
     val uploading: Boolean = false,
     val progress: Float = 0f,
+    val queuedKeys: Set<String> = emptySet(),
+    val backgroundCount: Int = 0,
+    val cleanupCount: Int = 0,
+    val backgroundFailed: Int = 0,
     val uploadIndex: Int = 0,
     val uploadTotal: Int = 0,
     val pendingDeletion: LocalDeletion? = null,
@@ -42,7 +46,7 @@ data class LocalUiState(
     val showCreateAlbum: Boolean = false
 ) {
     val busy: Boolean get() = loading || uploading || pendingDeletion != null
-    val visible: List<LocalMedia> get() = items.filter { (it.key in kept) == showKept }
+    val visible: List<LocalMedia> get() = items.filter { it.key !in queuedKeys && (it.key in kept) == showKept }
         .let { if (oldestFirst) it.sortedBy { photo -> photo.takenAt } else it.sortedByDescending { photo -> photo.takenAt } }
     val current: LocalMedia? get() = visible.getOrNull(currentIndex)
     fun targets(selectionMode: Boolean): List<LocalMedia> = if (selectionMode) visible.filter { it.key in selected } else listOfNotNull(current)

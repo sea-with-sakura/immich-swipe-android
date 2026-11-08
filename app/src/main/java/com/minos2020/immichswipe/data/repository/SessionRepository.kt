@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.map
  */
 class SessionRepository(context: Context) {
 
+    private val application = context.applicationContext
+
     private val dataStore = SessionDataStore(context)
 
     /**
@@ -308,6 +310,14 @@ class SessionRepository(context: Context) {
      * Supprime la session actuelle (Déconnexion).
      */
     suspend fun clearSession() {
+        sessionConfig.first()?.let { config ->
+            com.minos2020.immichswipe.feature.local.transfer.LocalTransferDatabase.get(application).tasks()
+                .cancel(config.baseUrl.trimEnd('/') + "\n" + config.userId)
+        }
+        androidx.work.WorkManager.getInstance(application).apply {
+            cancelUniqueWork("local-photo-transfers")
+            cancelUniqueWork("local-photo-deletions")
+        }
         dataStore.clearSession()
     }
 }

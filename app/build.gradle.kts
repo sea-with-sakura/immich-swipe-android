@@ -28,8 +28,8 @@ android {
         applicationId = "com.minos2020.immichswipe.albums"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "3.1.0"
+        versionCode = 14
+        versionName = "3.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -120,6 +120,8 @@ dependencies {
     // Media3 pour la lecture vidéo
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
+
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
 
     // Room
     implementation(libs.room.runtime)

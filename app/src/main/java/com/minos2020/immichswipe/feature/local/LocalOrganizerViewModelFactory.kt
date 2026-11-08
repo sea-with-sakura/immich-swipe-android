@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.minos2020.immichswipe.core.SessionConfig
+import com.minos2020.immichswipe.feature.local.transfer.*
 import com.minos2020.immichswipe.data.api.RetrofitFactory
 import com.minos2020.immichswipe.data.repository.AlbumRepository
 import com.minos2020.immichswipe.data.repository.LocalMediaRepository
@@ -14,6 +15,6 @@ class LocalOrganizerViewModelFactory(context: Context, private val config: Sessi
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         val media = LocalMediaRepository(application)
-        return LocalOrganizerViewModel(media, LocalTransferRepository(media, RetrofitFactory.create(config, uploadTimeouts = true), config), albums) as T
+        return LocalOrganizerViewModel(media, LocalTransferRepository(media, RetrofitFactory.create(config, uploadTimeouts = true), config), albums, PersistentLocalTransferQueue(application, config.localAccount())) as T
     }
 }

@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.minos2020.immichswipe.feature.local.transfer.LocalMediaDeletion.attach(this)
         AppLogger.init(applicationContext)
         AppLogger.i("MainActivity", "Application démarrée")
         enableEdgeToEdge()
@@ -152,4 +153,15 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    override fun onDestroy() {
+        com.minos2020.immichswipe.feature.local.transfer.LocalMediaDeletion.detach(this)
+        super.onDestroy()
+    }
+
+    @Deprecated("Platform result bridge for silent MediaStore grants")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        if (!com.minos2020.immichswipe.feature.local.transfer.LocalMediaDeletion.result(requestCode, resultCode))
+            super.onActivityResult(requestCode, resultCode, data)
+    }
+
 }

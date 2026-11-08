@@ -314,7 +314,7 @@
     <string name="local_keep">Keep</string>
     <string name="local_reconsider">Review again</string>
     <string name="local_upload">Upload to album</string>
-    <string name="local_upload_hint">Upload and file first, then delete the local originals</string>
+    <string name="local_upload_hint">Upload in background, then automatically clean up originals</string>
     <string name="local_load_failed">Could not read local photos. Check photo access and retry.</string>
     <string name="local_transfer_failed">Some photos could not be verified in the album. Originals retained; tap the album to retry.</string>
     <string name="local_not_deleted">Uploaded to the album. Local originals remain; tap the album again to retry deletion.</string>
@@ -325,4 +325,15 @@
     <string name="local_delete_confirm">Delete %1$d photo(s) from this phone?</string>
     <string name="local_settings">App settings</string>
     <string name="local_preparing_delete">Preparing local deletion…</string>
+    <string name="local_auto_explain">Enable automatic cleanup once to avoid delete confirmations.</string>
+    <string name="local_auto_enable">Enable</string>
+    <string name="local_background_channel">Background photo transfers</string>
+    <string name="local_background_title">Uploading to Immich</string>
+    <string name="local_background_body">You can keep sorting or leave the app. Originals are deleted only after verification.</string>
+    <string name="local_background_count">%1$d in background</string>
+    <string name="local_cleanup_count">Clean up (%1$d)</string>
+    <string name="local_retry_count">Retry (%1$d)</string>
+    <string name="local_background_cancel">Cancel pending transfers and cleanup</string>
+    <string name="local_queuing">Adding to background queue…</string>
+    <string name="local_cleanup_title">Cleaning up local photos</string>
 </resources>

@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
+import android.provider.MediaStore
+import com.minos2020.immichswipe.feature.local.transfer.LocalMediaDeletion
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn as AndroidOptIn
@@ -56,12 +59,12 @@ import java.time.format.FormatStyle
 import kotlin.math.abs
 
 private fun mediaPermissions(): Array<String> = when {
-    Build.VERSION.SDK_INT >= 34 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
-    Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+    Build.VERSION.SDK_INT >= 34 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, Manifest.permission.ACCESS_MEDIA_LOCATION)
+    Build.VERSION.SDK_INT >= 33 -> arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.ACCESS_MEDIA_LOCATION)
     Build.VERSION.SDK_INT <= 28 -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-    else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    else -> arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.ACCESS_MEDIA_LOCATION)
 }
-private fun hasMediaAccess(context: Context): Boolean = mediaPermissions().filter { it != Manifest.permission.WRITE_EXTERNAL_STORAGE }
+private fun hasMediaAccess(context: Context): Boolean = mediaPermissions().filter { it != Manifest.permission.WRITE_EXTERNAL_STORAGE && it != Manifest.permission.ACCESS_MEDIA_LOCATION }
     .any { ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED }
 private fun openPhotoSettings(context: Context) {
     context.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
@@ -82,14 +85,21 @@ fun LocalOrganizerScreen(
     val state by viewModel.uiState.collectAsState()
     val lifecycle = LocalLifecycleOwner.current
     var access by remember { mutableStateOf(hasMediaAccess(context)) }
+    var automatic by remember { mutableStateOf(LocalMediaDeletion.canPrepare(context)) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        access = hasMediaAccess(context); if (access) viewModel.refresh()
+        access = hasMediaAccess(context); automatic = LocalMediaDeletion.canPrepare(context); if (access) { viewModel.refresh(); viewModel.resumeBackground() }
+    }
+    val enableAutomatic: () -> Unit = {
+        if (Build.VERSION.SDK_INT >= 31 && MediaStore.canManageMedia(context)) permission.launch(mediaPermissions())
+        else if (Build.VERSION.SDK_INT >= 31) runCatching {
+            context.startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA, Uri.parse("package:${context.packageName}")))
+        }.onFailure { openPhotoSettings(context) }
     }
     LaunchedEffect(Unit) { if (access) viewModel.refresh() else permission.launch(mediaPermissions()) }
     val busy by rememberUpdatedState(state.busy)
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME && !busy) {
-            access = hasMediaAccess(context); if (access) viewModel.refresh()
+            access = hasMediaAccess(context); automatic = LocalMediaDeletion.canPrepare(context); if (access) { viewModel.refresh(); viewModel.resumeBackground() }
         } }
         lifecycle.lifecycle.addObserver(observer)
         onDispose { lifecycle.lifecycle.removeObserver(observer) }
@@ -97,8 +107,14 @@ fun LocalOrganizerScreen(
     val grid = rememberLazyGridState()
     val scope = rememberCoroutineScope()
     LaunchedEffect(state.refreshVersion, state.oldestFirst) { grid.requestScrollToItem(0) }
-    val photos = remember(state.items, state.kept, state.showKept, state.oldestFirst) { state.visible }
+    val photos = remember(state.items, state.kept, state.showKept, state.oldestFirst, state.queuedKeys) { state.visible }
     val current = photos.getOrNull(state.currentIndex)
+    LaunchedEffect(access, automatic, current?.key) {
+        if (access && automatic && current != null && !LocalMediaDeletion.hasWriteAccess(context, current)) {
+            // Warm a small batch, so choosing an album never waits on platform grants.
+            LocalMediaDeletion.prepare(context, photos.drop(state.currentIndex).take(48))
+        }
+    }
     val groups = remember(photos) { photos.groupBy { it.date } }
     val loader = remember(context) { ImageLoader.Builder(context).components { add(VideoFrameDecoder.Factory()) }.build() }
     DisposableEffect(loader) { onDispose { loader.shutdown() } }
@@ -134,6 +150,10 @@ fun LocalOrganizerScreen(
             }, enabled = !state.busy) {
                 Icon(Icons.Default.PermMedia, stringResource(R.string.local_access))
             }
+        }
+        if (Build.VERSION.SDK_INT >= 31 && !automatic) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.local_auto_explain), style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+            TextButton(onClick = enableAutomatic) { Text(stringResource(R.string.local_auto_enable)) }
         }
         PullToRefreshBox(isRefreshing = state.loading, onRefresh = viewModel::refresh, modifier = Modifier.weight(1f)) {
             if (photos.isEmpty() || (swipeMode && current == null)) {
@@ -197,9 +217,22 @@ fun LocalOrganizerScreen(
                 }
             }
         }
+        if (state.backgroundCount > 0 || state.cleanupCount > 0 || state.backgroundFailed > 0) Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.local_background_count, state.backgroundCount), style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
+            if (state.cleanupCount > 0) TextButton(onClick = {
+                if (Build.VERSION.SDK_INT >= 31 && !automatic) {
+                    enableAutomatic()
+                } else if (automatic) viewModel.resumeBackground() else viewModel.cleanup()
+            }) { Text(stringResource(R.string.local_cleanup_count, state.cleanupCount)) }
+            if (state.backgroundFailed > 0) TextButton(onClick = viewModel::retryBackground) {
+                Text(stringResource(R.string.local_retry_count, state.backgroundFailed)) }
+            IconButton(onClick = viewModel::cancelUpload) { Icon(Icons.Default.Close, stringResource(R.string.local_background_cancel)) }
+        }
         if (state.message != null || state.uploading || state.pendingDeletion != null) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(when {
-                state.uploading -> stringResource(R.string.local_progress, state.uploadIndex, state.uploadTotal)
+                state.uploading -> stringResource(R.string.local_queuing)
                 state.pendingDeletion != null -> stringResource(R.string.local_preparing_delete)
                 else -> stringResource(localMessage(checkNotNull(state.message))) },
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
@@ -230,7 +263,7 @@ fun LocalOrganizerScreen(
             { viewModel.showCreate(true) }, cloudOrganizer::loadAvailableAlbums, viewModel::undoKeep, viewModel::next,
             cloudOrganizer::reorderAlbum, cloudOrganizer::saveAlbumOrder, selectionMode = !swipeMode,
             titleOverride = stringResource(R.string.local_upload), hintOverride = stringResource(R.string.local_upload_hint),
-            uploadProgress = state.progress.takeIf { state.uploading })
+            uploadProgress = null)
         if (state.showCreateAlbum) CreateAlbumDialog(state.uploading, AlbumActionError.CREATE.takeIf { state.message == LocalMessage.TRANSFER_FAILED },
             { viewModel.upload(null, !swipeMode, it) }, { viewModel.showCreate(false) })
     }

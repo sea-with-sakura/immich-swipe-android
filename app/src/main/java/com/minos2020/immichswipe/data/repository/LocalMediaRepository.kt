@@ -2,6 +2,8 @@ package com.minos2020.immichswipe.data.repository
 
 import android.content.ContentUris
 import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -18,7 +20,8 @@ import java.util.UUID
 
 /** MediaStore IDs never leave this device except as optional legacy upload identifiers. */
 class LocalMediaRepository(context: Context) {
-    private val resolver = context.applicationContext.contentResolver
+    private val app = context.applicationContext
+    private val resolver = app.contentResolver
     private val prefs = context.applicationContext.getSharedPreferences("local_photo_organizer", Context.MODE_PRIVATE)
     private val gson = Gson()
 
@@ -61,7 +64,13 @@ class LocalMediaRepository(context: Context) {
     suspend fun saveReceipt(account: String, media: LocalMedia, receipt: LocalUploadReceipt) = withContext(Dispatchers.IO) {
         check(prefs.edit().putString(receiptKey(account, media.key), gson.toJson(receipt)).commit())
     }
-    fun open(media: LocalMedia) = checkNotNull(resolver.openInputStream(Uri.parse(media.uri))) { "Local file is unavailable" }
+    fun open(media: LocalMedia): java.io.InputStream {
+        val uri = Uri.parse(media.uri)
+        val original = if (Build.VERSION.SDK_INT >= 29 &&
+            app.checkSelfPermission(Manifest.permission.ACCESS_MEDIA_LOCATION) == PackageManager.PERMISSION_GRANTED)
+            MediaStore.setRequireOriginal(uri) else uri
+        return checkNotNull(resolver.openInputStream(original)) { "Local file is unavailable" }
+    }
     suspend fun checksum(media: LocalMedia): String = withContext(Dispatchers.IO) {
         val hash = MessageDigest.getInstance("SHA-1")
         open(media).use { stream ->
